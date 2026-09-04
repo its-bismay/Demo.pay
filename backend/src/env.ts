@@ -13,20 +13,20 @@ const envSchema = z.object({
   RAZORPAY_KEY_ID: z.string().min(1),
   RAZORPAY_KEY_SECRET: z.string().min(1),
   RAZORPAY_WEBHOOK_SECRET: z.string().min(1),
-  TWILIO_ACCOUNT_SID: z.string().min(1),
-  TWILIO_AUTH_TOKEN: z.string().min(1),
-  TWILIO_PHONE_NUMBER: z.string().min(1),
-  TWILIO_WHATSAPP_FROM: z.string().min(1),
   GOOGLE_API_KEY: z.string().min(1),
   EMAIL_SERVICE_URL: z.string().url(),
   MERCHANT_ID: z.string().uuid(),
   FRONTEND_ORIGIN: z.string().url(),
+  SARVAM_API_KEY: z.string().optional().default(''),
+  META_WHATSAPP_TOKEN: z.string().optional().default(''),
+  META_WHATSAPP_PHONE_ID: z.string().optional().default(''),
+  META_WHATSAPP_VERIFY_TOKEN: z.string().optional().default(''),
 });
 
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error('❌ Invalid environment variables:');
+  console.error('Invalid environment variables:');
   console.error(parsed.error.flatten().fieldErrors);
   process.exit(1);
 }

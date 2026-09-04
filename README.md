@@ -24,7 +24,7 @@
 - **Autonomous Recovery Pipeline**:
   - **Detect**: Instant webhook ingestion for failed transactions and drop-offs.
   - **Diagnose**: Multi-turn agent reasoning analyzing error codes and customer history.
-  - **Intervene**: Omnichannel customer reach via Twilio Voice (natural Hinglish) and WhatsApp recovery links.
+  - **Intervene**: Omnichannel customer reach via Sarvam AI Voice (natural Hinglish) and Meta WhatsApp Cloud API recovery links.
   - **Recover**: Seamless payment completion with auto-applied, policy-compliant discounts.
 
 ---
@@ -34,8 +34,8 @@
 - **Frontend**: React 18, Vite, Tailwind CSS, Radix UI / Shadcn UI, Framer Motion, Lucide React, Zustand.
 - **Backend & AI Architecture**:
   - Payment Gateway: Razorpay Test Mode & Webhooks
-  - AI Orchestration: Google ADK / Gemini models
-  - Communication: Twilio Programmable Voice & WhatsApp Sandbox
+  - AI Orchestration: Google ADK (Agent Development Kit) & Gemini models
+  - Voice & Messaging: Sarvam AI (Bulbul v3 TTS) & Meta WhatsApp Cloud API
 
 ---
 

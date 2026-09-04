@@ -1,4 +1,10 @@
+import { LlmAgent, InMemoryRunner } from '@google/adk';
 import { env } from '../env';
+import { executeWithGeminiRateLimit } from '../services/geminiRateLimiter';
+
+const hasValidGeminiKey =
+  Boolean(env.GOOGLE_API_KEY) &&
+  !env.GOOGLE_API_KEY.startsWith('dev_');
 
 export interface InterventionCopy {
   voiceScript: string;
@@ -20,63 +26,76 @@ export async function generateInterventionCopy(params: {
   const maxDiscount = policy?.maxDiscountPct ?? 15;
   const discountPct = Math.min(10, maxDiscount);
 
-  if (env.GOOGLE_API_KEY && !env.GOOGLE_API_KEY.startsWith('dev_')) {
-    try {
-      const prompt = `You are an AI Revenue Recovery Copy Agent for Demo.pay.
-Persona: ${policy?.personaPrompt ?? 'Empathetic, helpful, friendly support assistant.'}
-Language: ${policy?.languageMode ?? 'Hinglish'}
-Customer: ${customerName}
-Product: ${productName}
-Amount: ₹${amountInPaise / 100}
-Failure Mode: ${failureMode}
-Discount Offered: ${discountPct}%
-Recovery Link: ${recoveryLink}
-
-Return JSON with:
-{
-  "voiceScript": "script for phone call in persona",
-  "whatsappMessage": "WhatsApp message with emojis",
-  "emailSubject": "Compelling subject line",
-  "emailBody": "Friendly message text",
-  "discountPct": ${discountPct}
-}`;
-
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GOOGLE_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json' },
-          }),
-        }
-      );
-
-      if (res.ok) {
-        const data = (await res.json()) as any;
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          const parsed = JSON.parse(text);
-          return {
-            voiceScript: parsed.voiceScript,
-            whatsappMessage: parsed.whatsappMessage,
-            emailSubject: parsed.emailSubject,
-            emailBody: parsed.emailBody,
-            discountPct,
-          };
-        }
-      }
-    } catch (err) {
-      console.warn('Intervention copy generation fallback:', (err as Error).message);
-    }
-  }
-
-  return {
+  const fallbackCopy = (): InterventionCopy => ({
     voiceScript: `Hello ${customerName}, main Demo.pay se baat kar rahi hoon. Aapka ${productName} ka order complete nahi ho paya. Humne aapke liye ek special ${discountPct}% discount add kiya hai. Kya aap abhi payment complete karna chahenge?`,
     whatsappMessage: `Hi ${customerName}! 👋 Humne dekha ki aapka *${productName}* ka payment complete nahi hua. Aapke liye special *${discountPct}% off* add kiya hai! Order yahan complete karein: ${recoveryLink}`,
     emailSubject: `Special ${discountPct}% Off: Complete your order for ${productName}`,
     emailBody: `Hi ${customerName}, your payment for ${productName} was interrupted. Click the link below to resume with your exclusive ${discountPct}% discount.`,
     discountPct,
-  };
+  });
+
+  if (!hasValidGeminiKey) {
+    return fallbackCopy();
+  }
+
+  return executeWithGeminiRateLimit(
+    async () => {
+      const agent = new LlmAgent({
+        name: 'intervention_copy_agent',
+        model: 'gemini-3.5-flash-lite',
+        instruction: `You are an AI Revenue Recovery Copywriter for Demo.pay.
+Persona: ${policy?.personaPrompt ?? 'Empathetic, helpful, friendly support assistant.'}
+Language: ${policy?.languageMode ?? 'Hinglish'}
+
+Return strict JSON only without formatting wrappers:
+{
+  "voiceScript": "concise spoken phone pitch in Hinglish",
+  "whatsappMessage": "friendly WhatsApp copy with clean formatting",
+  "emailSubject": "compelling recovery subject line",
+  "emailBody": "helpful email body"
+}`,
+      });
+
+      const runner = new InMemoryRunner({ agent });
+      let agentOutput = '';
+
+      const prompt = `Generate recovery copy:
+Customer: ${customerName}
+Product: ${productName}
+Amount: ₹${amountInPaise / 100}
+Failure: ${failureMode}
+Discount: ${discountPct}%
+Recovery Link: ${recoveryLink}`;
+
+      for await (const event of runner.runEphemeral({
+        userId: 'system',
+        newMessage: {
+          role: 'user',
+          parts: [{ text: prompt }],
+        },
+      })) {
+        const parts = event.content?.parts;
+        if (Array.isArray(parts)) {
+          for (const p of parts) {
+            if (p.text) agentOutput += p.text;
+          }
+        }
+      }
+
+      const cleanJson = agentOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+      if (cleanJson) {
+        const parsed = JSON.parse(cleanJson);
+        return {
+          voiceScript: parsed.voiceScript || `Hello ${customerName}, main Demo.pay se Aditi baat kar rahi hoon.`,
+          whatsappMessage: parsed.whatsappMessage || `Hi ${customerName}! Your checkout for ${productName} is saved: ${recoveryLink}`,
+          emailSubject: parsed.emailSubject || `Complete your order for ${productName}`,
+          emailBody: parsed.emailBody || `Hi ${customerName}, finish your checkout here: ${recoveryLink}`,
+          discountPct,
+        };
+      }
+      return fallbackCopy();
+    },
+    fallbackCopy,
+    600
+  );
 }

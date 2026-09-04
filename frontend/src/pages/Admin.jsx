@@ -634,9 +634,10 @@ function AiSetupView() {
                 <SelectValue placeholder="Select voice" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Female (Professional / Empathetic)">Aditi (Polly - Female, Natural Hinglish)</SelectItem>
-                <SelectItem value="Raveena (Polly - Female, Indian English)">Raveena (Polly - Female, Indian English)</SelectItem>
-                <SelectItem value="Neural2-B (Google - Male, Professional)">Neural2-B (Google - Male, Professional)</SelectItem>
+                <SelectItem value="ritu (Sarvam Bulbul v3 - Female, Expressive Hinglish)">Ritu (Sarvam Bulbul v3 - Female, Expressive Hinglish)</SelectItem>
+                <SelectItem value="priya (Sarvam Bulbul v3 - Female, Indian English)">Priya (Sarvam Bulbul v3 - Female, Indian English)</SelectItem>
+                <SelectItem value="shubh (Sarvam Bulbul v3 - Male, Professional)">Shubh (Sarvam Bulbul v3 - Male, Professional)</SelectItem>
+                <SelectItem value="arun (Sarvam Bulbul v3 - Male, Dynamic)">Arun (Sarvam Bulbul v3 - Male, Dynamic)</SelectItem>
               </SelectContent>
             </Select>
           </div>

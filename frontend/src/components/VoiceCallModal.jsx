@@ -145,28 +145,84 @@ export function VoiceCallModal() {
     return () => clearInterval(timer);
   }, [callState]);
 
-  // Speech Synthesis helper
-  const speakText = (text) => {
-    if (!('speechSynthesis' in window)) return;
+  const audioRef = useRef(null);
 
-    window.speechSynthesis.cancel();
+  const speakText = async (text) => {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch (e) {}
+      audioRef.current = null;
+    }
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+
     setSpeaking(true);
+
+    try {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+      const ttsRes = await fetch(`${baseUrl}/api/voice/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          voiceType: callData?.voiceType || 'ritu',
+          languageMode: callData?.languageMode || 'Hinglish',
+        }),
+      });
+
+      if (ttsRes.ok && ttsRes.headers.get('content-type')?.includes('audio')) {
+        const blob = await ttsRes.blob();
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        audioRef.current = audio;
+
+        audio.onended = () => {
+          setSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+          audioRef.current = null;
+          startListening();
+        };
+
+        audio.onerror = () => {
+          setSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+          audioRef.current = null;
+          startListening();
+        };
+
+        await audio.play();
+        return;
+      }
+    } catch (err) {}
+
+    if (!('speechSynthesis' in window)) {
+      setSpeaking(false);
+      startListening();
+      return;
+    }
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.95;
     utterance.pitch = 1.05;
 
     const voices = window.speechSynthesis.getVoices();
-    // Prefer Indian English or Hindi female voices
-    const inVoice = voices.find(v => 
-      (v.lang.includes('IN') || v.lang.includes('hi') || v.name.includes('India') || v.name.includes('Heera') || v.name.includes('Aditi'))
-    ) || voices.find(v => v.lang.startsWith('en') && (v.name.includes('Female') || v.name.includes('Zira') || v.name.includes('Samantha')));
+    const inVoice =
+      voices.find(
+        (v) =>
+          v.lang.includes('IN') ||
+          v.lang.includes('hi') ||
+          v.name.includes('India') ||
+          v.name.includes('Aditi')
+      ) || voices.find((v) => v.lang.startsWith('en'));
 
     if (inVoice) utterance.voice = inVoice;
 
     utterance.onend = () => {
       setSpeaking(false);
-      // Start listening after agent finishes speaking
       startListening();
     };
 
@@ -178,7 +234,6 @@ export function VoiceCallModal() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // Speech Recognition helper
   const startListening = () => {
     if (isMuted || callState !== 'connected') return;
 
@@ -222,7 +277,6 @@ export function VoiceCallModal() {
     }
   };
 
-  // Initial greeting when call connects
   useEffect(() => {
     if (callState === 'connected' && callData) {
       const greeting = callData.script || `Namaste ${callData.customerName || 'Customer'}! Main Demo.pay recovery desk se Aditi baat kar rahi hoon. Maine dekha aapka ₹${callData.amountInRs || '2,499'} ka payment fail ho gaya tha. Humne aapke liye ek special 10% discount activate kiya hai. Kya aap abhi complete karna chahenge ya kal schedule karein?`;
@@ -231,6 +285,12 @@ export function VoiceCallModal() {
     }
 
     return () => {
+      if (audioRef.current) {
+        try {
+          audioRef.current.pause();
+        } catch (e) {}
+        audioRef.current = null;
+      }
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }

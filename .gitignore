@@ -33,11 +33,13 @@ current_ui_screenshots/
 **/current_ui_screenshots/
 **/current_ui_screenshots/
 
-# Markdown documentation files (except README)
+# Markdown documentation files (except README and guides)
 *.md
 **/*.md
 !README.md
 !**/README.md
+!api_keys_setup_guide.md
+!hosting_guide.md
 
 # Editor and IDE configurations
 .vscode/*

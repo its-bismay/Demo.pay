@@ -18,11 +18,10 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Separator } from '@/components/ui/separator';
 
-// MOCK_PRODUCTS removed. Fetching dynamically from backend.
-
 const loginSchema = z.object({
   name: z.string().min(2, 'Name is too short'),
   email: z.string().email('Invalid email'),
+  phone: z.string().optional(),
 });
 
 function StoreAuthGate({ onLogin }) {
@@ -77,6 +76,14 @@ function StoreAuthGate({ onLogin }) {
               <Label htmlFor="email">Email</Label>
               <Input id="email" type="email" placeholder="john@example.com" {...register('email')} />
               {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="phone">Phone Number</Label>
+                <span className="text-[11px] text-muted-foreground font-normal">Optional (WhatsApp recovery)</span>
+              </div>
+              <Input id="phone" placeholder="+91 98765 43210" {...register('phone')} />
             </div>
 
             {error && <p className="text-sm text-destructive text-center">{error}</p>}

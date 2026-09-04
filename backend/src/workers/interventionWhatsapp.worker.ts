@@ -11,7 +11,7 @@ import {
   orderItems,
   products,
 } from '../db/schema';
-import { sendWhatsAppMessage } from '../services/twilio';
+import { sendWhatsAppMessage } from '../services/whatsappService';
 import { sseEmitter } from '../services/sse';
 import { eq } from 'drizzle-orm';
 import { env } from '../env';
@@ -70,7 +70,21 @@ export async function processInterventionWhatsapp(data: {
     customer = cust;
   }
 
-  const phone = customer?.phone ?? '+919876543210';
+  const phone = customer?.phone?.trim() ?? '';
+  if (!phone || phone.length < 6) {
+    if (agentInstanceId) {
+      await db.insert(recoveryActions).values({
+        caseId,
+        agentInstanceId,
+        channel: 'WHATSAPP',
+        rationale: 'Skipped WhatsApp dispatch: customer has no phone number on record.',
+        policyChecksPassed: { contactCap: true, quietHours: true, discountCap: true },
+        outcome: 'suppressed',
+      });
+    }
+    return;
+  }
+
   const customerName = customer?.name ?? 'Customer';
   const recoveryLink = `${env.FRONTEND_ORIGIN}/store?case_id=${caseId}`;
 

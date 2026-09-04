@@ -58,7 +58,7 @@ export async function processDiagnosis(data: {
       id: '00000000-0000-0000-0000-000000000000',
       name: 'Shopper',
       email: 'customer@example.com',
-      phone: '+919876543210',
+      phone: '',
     };
   }
 
@@ -79,12 +79,15 @@ export async function processDiagnosis(data: {
     })
     .returning();
 
+  const hasPhone = Boolean(customer?.phone && customer.phone.trim().length > 5);
+
   const diagnosis = await runDiagnosisAgent({
     failureMode,
     amountInPaise: recoveryCase.atRiskAmountInPaise,
     customerName: customer.name,
     historyCount: 1,
     policy,
+    hasPhone,
   });
 
   await db.insert(agentLogs).values({

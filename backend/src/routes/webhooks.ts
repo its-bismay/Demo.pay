@@ -1,11 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { webhookEvents, customers, recoveryCases, orders } from '../db/schema';
-import { eq, desc, and, or } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { rawBodyMiddleware, verifyRazorpayHmac } from '../middleware/hmac';
 import { webhookIngestionQueue } from '../config/queues';
 import { processWebhookIngestion } from '../workers/webhookIngestion.worker';
 import { parsePromiseIntent, recordPromiseToPay } from '../services/promiseService';
+import { env } from '../env';
 
 const router = Router();
 
@@ -50,93 +51,81 @@ router.post(
   }
 );
 
-router.post('/webhooks/twilio/whatsapp', async (req: Request, res: Response): Promise<void> => {
-  const body = req.body?.Body ?? '';
-  const fromRaw = req.body?.From ?? '';
-  const phone = fromRaw.replace('whatsapp:', '').trim();
+router.get('/webhooks/whatsapp', (req: Request, res: Response): void => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
 
-  const [customer] = await db
-    .select()
-    .from(customers)
-    .where(eq(customers.phone, phone))
-    .limit(1);
+  const expectedToken = env.META_WHATSAPP_VERIFY_TOKEN || 'dev_meta_verify_token';
 
-  const { isPromise, hoursAhead } = parsePromiseIntent(body);
-
-  if (isPromise && customer) {
-    const [activeCase] = await db
-      .select()
-      .from(recoveryCases)
-      .innerJoin(orders, eq(recoveryCases.orderId, orders.id))
-      .where(eq(orders.customerId, customer.id))
-      .orderBy(desc(recoveryCases.createdAt))
-      .limit(1);
-
-    if (activeCase?.recovery_cases) {
-      await recordPromiseToPay({
-        caseId: activeCase.recovery_cases.id,
-        customerId: customer.id,
-        source: 'whatsapp_reply',
-        hoursAhead,
-      });
-    }
+  if (mode === 'subscribe' && token === expectedToken) {
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
   }
-
-  res.set('Content-Type', 'text/xml');
-  res.send(`
-    <Response>
-      <Message>${
-        isPromise
-          ? "Thank you! We've noted your promise to pay. We'll remind you then."
-          : 'Thank you for reaching out to Demo.pay support. Let us know if you need assistance completing your order.'
-      }</Message>
-    </Response>
-  `);
 });
 
-router.post('/twilio/voice/response', async (req: Request, res: Response): Promise<void> => {
-  const speech = req.body?.SpeechResult ?? '';
-  const fromPhone = req.body?.From ?? '';
+router.post('/webhooks/whatsapp', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const entry = req.body?.entry?.[0];
+    const changes = entry?.changes?.[0]?.value;
+    const message = changes?.messages?.[0];
 
-  const [customer] = await db
-    .select()
-    .from(customers)
-    .where(eq(customers.phone, fromPhone))
-    .limit(1);
-
-  const { isPromise, hoursAhead } = parsePromiseIntent(speech);
-
-  if (isPromise && customer) {
-    const [activeCase] = await db
-      .select()
-      .from(recoveryCases)
-      .innerJoin(orders, eq(recoveryCases.orderId, orders.id))
-      .where(eq(orders.customerId, customer.id))
-      .orderBy(desc(recoveryCases.createdAt))
-      .limit(1);
-
-    if (activeCase?.recovery_cases) {
-      await recordPromiseToPay({
-        caseId: activeCase.recovery_cases.id,
-        customerId: customer.id,
-        source: 'voice',
-        hoursAhead,
-      });
+    if (!message) {
+      res.sendStatus(200);
+      return;
     }
-  }
 
-  res.set('Content-Type', 'text/xml');
-  res.send(`
-    <Response>
-      <Say voice="Polly.Aditi" language="en-IN">
-        ${
-          isPromise
-            ? 'Thank you! We have noted your request to pay later. Have a wonderful day!'
-            : 'Thank you for your response. We have sent the recovery link to your phone. Have a wonderful day!'
-        }
-      </Say>
-    </Response>
-  `);
+    const fromPhone = message.from || '';
+    const body = message.text?.body || '';
+
+    const cleanPhone = fromPhone.replace(/[^\d]/g, '');
+    const searchPhones = [
+      cleanPhone,
+      `+${cleanPhone}`,
+      cleanPhone.startsWith('91') ? cleanPhone.slice(2) : cleanPhone,
+      cleanPhone.startsWith('91') ? `+91${cleanPhone.slice(2)}` : `+91${cleanPhone}`,
+    ];
+
+    let matchedCustomer = null;
+    for (const p of searchPhones) {
+      const [found] = await db
+        .select()
+        .from(customers)
+        .where(eq(customers.phone, p))
+        .limit(1);
+      if (found) {
+        matchedCustomer = found;
+        break;
+      }
+    }
+
+    const { isPromise, hoursAhead } = parsePromiseIntent(body);
+
+    if (isPromise && matchedCustomer) {
+      const [activeCase] = await db
+        .select()
+        .from(recoveryCases)
+        .innerJoin(orders, eq(recoveryCases.orderId, orders.id))
+        .where(eq(orders.customerId, matchedCustomer.id))
+        .orderBy(desc(recoveryCases.createdAt))
+        .limit(1);
+
+      if (activeCase?.recovery_cases) {
+        await recordPromiseToPay({
+          caseId: activeCase.recovery_cases.id,
+          customerId: matchedCustomer.id,
+          source: 'whatsapp_reply',
+          hoursAhead,
+        });
+      }
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.warn('Meta WhatsApp webhook processing error:', err);
+    res.sendStatus(200);
+  }
 });
 
 export default router;

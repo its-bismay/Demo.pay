@@ -11,10 +11,8 @@ import {
   orderItems,
   products,
 } from '../db/schema';
-import { initiateVoiceCall } from '../services/twilio';
 import { sseEmitter } from '../services/sse';
 import { eq } from 'drizzle-orm';
-import { env } from '../env';
 
 export async function processInterventionVoice(data: {
   caseId: string;
@@ -61,33 +59,14 @@ export async function processInterventionVoice(data: {
     }
   }
 
-  if (!customer) {
-    const [cust] = await db
-      .select()
-      .from(customers)
-      .where(eq(customers.merchantId, env.MERCHANT_ID))
-      .limit(1);
-    customer = cust;
-  }
-
-  const phone = customer?.phone ?? '+919876543210';
-  const customerName = customer?.name ?? 'Customer';
-  const recoveryLink = `${env.FRONTEND_ORIGIN}/store?case_id=${caseId}`;
-
-  const { callSid } = await initiateVoiceCall({
-    to: phone,
-    customerName,
-    productName,
-    recoveryLink,
-    discountPct,
-  });
+  const callSid = `voice_call_${Date.now()}`;
 
   if (agentInstanceId) {
     await db.insert(recoveryActions).values({
       caseId,
       agentInstanceId,
       channel: 'VOICE',
-      rationale: `Initiated empathetic voice support call. CallSid: ${callSid}`,
+      rationale: `Prepared autonomous voice recovery concierge for ${productName} (discount: ${discountPct}%). CallSid: ${callSid}`,
       policyChecksPassed: { contactCap: true, quietHours: true, discountCap: true },
       outcome: 'sent',
     });
@@ -110,6 +89,7 @@ export async function processInterventionVoice(data: {
     channel: 'VOICE',
     caseId,
     callSid,
+    orderId: recoveryCase.orderId,
   });
 }
 

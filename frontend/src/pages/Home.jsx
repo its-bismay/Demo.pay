@@ -10,18 +10,18 @@ import { Separator } from '@/components/ui/separator';
 const flowSteps = [
   { id: 1, title: 'Detect', icon: Search, desc: 'Listen to Razorpay webhooks for payment failures or checkout drops.' },
   { id: 2, title: 'Diagnose', icon: Bot, desc: 'AI agents analyze the root cause and determine the best intervention.' },
-  { id: 3, title: 'Intervene', icon: Phone, desc: 'Reach out via Twilio Voice (Hinglish) or WhatsApp immediately.' },
+  { id: 3, title: 'Intervene', icon: Phone, desc: 'Reach out via Sarvam AI Voice (Hinglish) or Meta WhatsApp immediately.' },
   { id: 4, title: 'Recover', icon: CheckCircle, desc: 'Customer completes payment via recovery link. Revenue secured.' },
 ];
 
 const techStack = [
   { title: 'Razorpay', desc: 'Core payment gateway, test mode API, and real-time HMAC-signed webhooks for event triggers.' },
-  { title: 'Google ADK', desc: 'Gemini-flash-latest models orchestrating the diagnosis and intervention reasoning loops.' },
-  { title: 'Twilio', desc: 'Programmable Voice (TwiML) and WhatsApp sandbox for immediate omnichannel customer contact.' },
+  { title: 'Google ADK', desc: 'Gemini-flash models orchestrating diagnosis and interactive voice reasoning agents.' },
+  { title: 'Sarvam AI & Meta', desc: 'Bulbul v3 neural voice synthesis for real-time recovery calls and Meta WhatsApp Cloud API.' },
 ];
 
 const walkthroughSteps = [
-  'Navigate to the Store tab and enter your name and email to enter the demo store.',
+  'Navigate to the Store tab and enter your details (with optional phone for WhatsApp recovery).',
   'Click on any product and hit "Add to Bag" to open the Checkout Drawer.',
   'Instead of a real payment, click one of the "Simulate Outcome" buttons to inject a synthetic failure.',
   'Wait ~3 seconds. An interactive AI Voice Agent will call you right in the browser, offering a discount and convincing you to recover the order.',
