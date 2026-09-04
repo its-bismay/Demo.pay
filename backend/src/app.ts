@@ -9,7 +9,7 @@ import authRouter from './routes/auth';
 import productsRouter from './routes/products';
 import checkoutRouter from './routes/checkout';
 import webhooksRouter from './routes/webhooks';
-import './workers/webhookIngestion.worker';
+import './workers';
 
 const app = express();
 
