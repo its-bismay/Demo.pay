@@ -17,3 +17,32 @@ export const productCreateSchema = z.object({
   discountEligible: z.boolean().default(true),
   maxDiscountOverridePct: z.number().int().min(0).max(100).nullable().optional(),
 });
+
+export const checkoutOrderSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        productId: z.string().uuid(),
+        quantity: z.number().int().positive(),
+      })
+    )
+    .min(1),
+});
+
+export const simulateSchema = z.object({
+  orderId: z.string().uuid(),
+  scenario: z.string().min(1),
+  paymentMethod: z.string().optional(),
+});
+
+export const abandonCartSchema = z.object({
+  cartItems: z
+    .array(
+      z.object({
+        productId: z.string().uuid(),
+        quantity: z.number().int().positive(),
+      })
+    )
+    .min(1),
+});
+
