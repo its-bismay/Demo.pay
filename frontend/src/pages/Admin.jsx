@@ -1,5 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Plus, Edit, Trash2 } from 'lucide-react';
+import {
+  ShieldAlert,
+  Plus,
+  Edit,
+  Trash2,
+  Zap,
+  RotateCw,
+  Clock,
+  User,
+  Phone,
+  Mail,
+  CheckCircle2,
+  AlertTriangle,
+  ExternalLink,
+} from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,32 +21,75 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Slider } from '@/components/ui/slider';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { usePolicyStore, useLiveFeedStore } from '@/store';
-
+import { useLiveFeedStore } from '@/store';
 import { api } from '@/lib/api';
 
-// Initial products state is now empty, fetched dynamically
 const INITIAL_PRODUCTS = [];
+
+export function CaseStatusBadge({ status }) {
+  const map = {
+    RECOVERED: { label: 'Recovered', className: 'bg-green-600 text-white hover:bg-green-700' },
+    SUPPRESSED: { label: 'Suppressed', className: 'bg-amber-500 text-white hover:bg-amber-600' },
+    FAILED: { label: 'Failed', className: 'bg-red-600 text-white hover:bg-red-700' },
+    INTERVENTION_EXECUTING: { label: 'In Progress', className: 'bg-blue-600 text-white hover:bg-blue-700' },
+    INTERVENTION_SCHEDULED: { label: 'Scheduled', className: 'bg-indigo-600 text-white hover:bg-indigo-700' },
+    DIAGNOSED: { label: 'Diagnosed', className: 'bg-slate-600 text-white hover:bg-slate-700' },
+    DETECTED: { label: 'Detected', className: 'bg-slate-500 text-white hover:bg-slate-600' },
+  };
+  const s = map[status] ?? { label: status, className: 'bg-muted text-muted-foreground' };
+  return <Badge className={`font-semibold ${s.className}`}>{s.label}</Badge>;
+}
 
 function KillSwitch() {
   const [isActive, setIsActive] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
+  useEffect(() => {
+    api('/api/system/kill-switch')
+      .then((data) => setIsActive(data.active))
+      .catch((err) => console.warn('Kill switch fetch error:', err));
+  }, []);
+
   const toggleSwitch = () => {
     setShowConfirm(true);
   };
 
-  const confirmToggle = () => {
-    setIsActive(!isActive);
+  const confirmToggle = async () => {
+    const nextState = !isActive;
+    setIsActive(nextState);
     setShowConfirm(false);
-    console.log(`Global Kill Switch is now: ${!isActive ? 'ACTIVE (Agents Halted)' : 'INACTIVE (Agents Running)'}`);
+    try {
+      await api('/api/system/kill-switch', {
+        method: 'POST',
+        body: JSON.stringify({ active: nextState }),
+      });
+    } catch (err) {
+      console.error('Failed to toggle kill switch:', err);
+      setIsActive(!nextState);
+    }
   };
 
   return (
@@ -40,16 +97,16 @@ function KillSwitch() {
       <div className="flex items-center gap-4 bg-muted/50 p-2 px-4 rounded-lg border border-border">
         <div className="flex flex-col">
           <span className="text-sm font-semibold flex items-center gap-2 text-foreground">
-            <ShieldAlert className="h-4 w-4 text-destructive" />
+            <ShieldAlert className={`h-4 w-4 ${isActive ? 'text-destructive' : 'text-primary'}`} />
             Global Kill Switch
           </span>
           <span className="text-xs text-muted-foreground">
             {isActive ? 'Agents are HALTED' : 'Agents are RUNNING'}
           </span>
         </div>
-        <Switch 
-          checked={isActive} 
-          onCheckedChange={toggleSwitch} 
+        <Switch
+          checked={isActive}
+          onCheckedChange={toggleSwitch}
           className={isActive ? 'data-[state=checked]:bg-destructive' : ''}
         />
       </div>
@@ -59,18 +116,18 @@ function KillSwitch() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Kill Switch Toggle</AlertDialogTitle>
             <AlertDialogDescription>
-              {isActive 
-                ? "You are about to re-enable AI agents. They will resume processing any queued failures."
-                : "You are about to HALT all AI agents. No new calls or messages will be sent until re-enabled."}
+              {isActive
+                ? 'You are about to re-enable AI agents. They will resume processing recovery cases.'
+                : 'You are about to HALT all AI agents. Interventions will be automatically SUPPRESSED.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={confirmToggle}
-              className={!isActive ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+              className={!isActive ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
             >
-              {isActive ? "Re-enable Agents" : "Halt Agents"}
+              {isActive ? 'Re-enable Agents' : 'Halt Agents'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -81,11 +138,13 @@ function KillSwitch() {
 
 function AddItemView() {
   const [products, setProducts] = useState(INITIAL_PRODUCTS);
-  const [isDeleting, setIsDeleting] = useState(null); // id of product to delete
-  const [isEditing, setIsEditing] = useState(null); // product object to edit
+  const [isDeleting, setIsDeleting] = useState(null);
+  const [isEditing, setIsEditing] = useState(null);
 
   useEffect(() => {
-    api('/api/products').then(data => setProducts(data.products)).catch(console.error);
+    api('/api/products')
+      .then((data) => setProducts(data.products))
+      .catch(console.error);
   }, []);
 
   const handleAdd = async (e) => {
@@ -97,7 +156,9 @@ function AddItemView() {
       priceInPaise: parseInt(formData.get('price')) * 100,
       description: formData.get('description'),
       discountEligible: formData.get('discount_eligible') === 'on',
-      maxDiscountOverridePct: formData.get('max_discount_override_pct') ? parseInt(formData.get('max_discount_override_pct')) : null,
+      maxDiscountOverridePct: formData.get('max_discount_override_pct')
+        ? parseInt(formData.get('max_discount_override_pct'))
+        : null,
       ratingValue: parseFloat(formData.get('rating_value')) || 0,
       ratingCount: parseInt(formData.get('rating_count')) || 0,
       imageUrl: formData.get('image_url') || '',
@@ -120,14 +181,19 @@ function AddItemView() {
       category: formData.get('category'),
       description: formData.get('description'),
       discountEligible: formData.get('discount_eligible') === 'on',
-      maxDiscountOverridePct: formData.get('max_discount_override_pct') ? parseInt(formData.get('max_discount_override_pct')) : null,
+      maxDiscountOverridePct: formData.get('max_discount_override_pct')
+        ? parseInt(formData.get('max_discount_override_pct'))
+        : null,
       ratingValue: parseFloat(formData.get('rating_value')) || 0,
       ratingCount: parseInt(formData.get('rating_count')) || 0,
       imageUrl: formData.get('image_url') || '',
     };
     try {
-      const res = await api(`/api/products/${isEditing.id}`, { method: 'PATCH', body: JSON.stringify(body) });
-      setProducts(products.map(p => p.id === isEditing.id ? res.product : p));
+      const res = await api(`/api/products/${isEditing.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      setProducts(products.map((p) => (p.id === isEditing.id ? res.product : p)));
       setIsEditing(null);
     } catch (err) {
       console.error(err);
@@ -137,7 +203,7 @@ function AddItemView() {
   const confirmDelete = async () => {
     try {
       await api(`/api/products/${isDeleting}`, { method: 'DELETE' });
-      setProducts(products.map(p => p.id === isDeleting ? { ...p, active: false } : p));
+      setProducts(products.map((p) => (p.id === isDeleting ? { ...p, active: false } : p)));
       setIsDeleting(null);
     } catch (err) {
       console.error(err);
@@ -159,7 +225,12 @@ function AddItemView() {
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea name="description" required placeholder="Short description..." className="bg-background resize-none h-20" />
+              <Textarea
+                name="description"
+                required
+                placeholder="Short description..."
+                className="bg-background resize-none h-20"
+              />
             </div>
             <div className="space-y-2">
               <Label>Image URL</Label>
@@ -190,11 +261,27 @@ function AddItemView() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Rating (1-5)</Label>
-                <Input name="rating_value" type="number" required placeholder="4.5" min="1" max="5" step="0.1" className="bg-background" />
+                <Input
+                  name="rating_value"
+                  type="number"
+                  required
+                  placeholder="4.5"
+                  min="1"
+                  max="5"
+                  step="0.1"
+                  className="bg-background"
+                />
               </div>
               <div className="space-y-2">
                 <Label>Rating Count</Label>
-                <Input name="rating_count" type="number" required placeholder="120" min="0" className="bg-background" />
+                <Input
+                  name="rating_count"
+                  type="number"
+                  required
+                  placeholder="120"
+                  min="0"
+                  className="bg-background"
+                />
               </div>
             </div>
             <div className="flex items-center gap-2 pt-2">
@@ -203,8 +290,15 @@ function AddItemView() {
             </div>
             <div className="space-y-2">
               <Label>Item-Specific Discount Cap (%)</Label>
-              <Input name="max_discount_override_pct" type="number" placeholder="Leave blank for global cap" min="0" max="100" className="bg-background" />
-              <p className="text-xs text-muted-foreground">Overrides the global AI policy limit if set.</p>
+              <Input
+                name="max_discount_override_pct"
+                type="number"
+                placeholder="Leave blank for global cap"
+                min="0"
+                max="100"
+                className="bg-background"
+              />
+              <p className="text-xs text-muted-foreground">Overrides global AI policy limit if set.</p>
             </div>
             <Button type="submit" className="w-full">
               <Plus className="h-4 w-4 mr-2" /> Add Product
@@ -220,8 +314,11 @@ function AddItemView() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {products.map(product => (
-              <div key={product.id} className="flex items-center justify-between p-4 border rounded-lg bg-background hover:border-primary/50 transition-colors">
+            {products.map((product) => (
+              <div
+                key={product.id}
+                className="flex items-center justify-between p-4 border rounded-lg bg-background hover:border-primary/50 transition-colors"
+              >
                 <div>
                   <h4 className="font-semibold text-foreground">{product.name}</h4>
                   <div className="flex gap-2 mt-1 text-sm text-muted-foreground">
@@ -234,7 +331,12 @@ function AddItemView() {
                   <Button variant="ghost" size="icon" onClick={() => setIsEditing(product)}>
                     <Edit className="h-4 w-4 text-muted-foreground" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="hover:text-destructive hover:bg-destructive/10" onClick={() => setIsDeleting(product.id)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => setIsDeleting(product.id)}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -247,7 +349,6 @@ function AddItemView() {
         </CardContent>
       </Card>
 
-      {/* Edit Dialog */}
       <Dialog open={!!isEditing} onOpenChange={(open) => !open && setIsEditing(null)}>
         <DialogContent>
           <DialogHeader>
@@ -260,7 +361,12 @@ function AddItemView() {
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea name="description" required defaultValue={isEditing?.description} className="resize-none h-20" />
+              <Textarea
+                name="description"
+                required
+                defaultValue={isEditing?.description}
+                className="resize-none h-20"
+              />
             </div>
             <div className="space-y-2">
               <Label>Image URL</Label>
@@ -269,7 +375,7 @@ function AddItemView() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Category</Label>
-                <Select name="category" defaultValue={isEditing?.category || "Electronics"} required>
+                <Select name="category" defaultValue={isEditing?.category || 'Electronics'} required>
                   <SelectTrigger>
                     <SelectValue placeholder="Select Category" />
                   </SelectTrigger>
@@ -285,17 +391,37 @@ function AddItemView() {
               </div>
               <div className="space-y-2">
                 <Label>Price (₹)</Label>
-                <Input name="price" type="number" required defaultValue={isEditing ? Math.round(isEditing.priceInPaise / 100) : ''} min="1" />
+                <Input
+                  name="price"
+                  type="number"
+                  required
+                  defaultValue={isEditing ? Math.round(isEditing.priceInPaise / 100) : ''}
+                  min="1"
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Rating (1-5)</Label>
-                <Input name="rating_value" type="number" required defaultValue={isEditing?.ratingValue} min="1" max="5" step="0.1" />
+                <Input
+                  name="rating_value"
+                  type="number"
+                  required
+                  defaultValue={isEditing?.ratingValue}
+                  min="1"
+                  max="5"
+                  step="0.1"
+                />
               </div>
               <div className="space-y-2">
                 <Label>Rating Count</Label>
-                <Input name="rating_count" type="number" required defaultValue={isEditing?.ratingCount} min="0" />
+                <Input
+                  name="rating_count"
+                  type="number"
+                  required
+                  defaultValue={isEditing?.ratingCount}
+                  min="0"
+                />
               </div>
             </div>
             <div className="flex items-center gap-2 pt-2">
@@ -304,7 +430,14 @@ function AddItemView() {
             </div>
             <div className="space-y-2">
               <Label>Item-Specific Discount Cap (%)</Label>
-              <Input name="max_discount_override_pct" type="number" defaultValue={isEditing?.maxDiscountOverridePct || ''} placeholder="Leave blank for global cap" min="0" max="100" />
+              <Input
+                name="max_discount_override_pct"
+                type="number"
+                defaultValue={isEditing?.maxDiscountOverridePct || ''}
+                placeholder="Leave blank for global cap"
+                min="0"
+                max="100"
+              />
             </div>
             <DialogFooter className="pt-4">
               <Button type="submit">Save Changes</Button>
@@ -313,18 +446,20 @@ function AddItemView() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
       <AlertDialog open={!!isDeleting} onOpenChange={(open) => !open && setIsDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Product?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently remove the product from the store.
+              This action cannot be undone. This will soft-delete the product from the store.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -335,26 +470,75 @@ function AddItemView() {
 }
 
 function AiSetupView() {
-  const policy = usePolicyStore(state => state.policy);
-  const updatePolicy = usePolicyStore(state => state.updatePolicy);
-  const [formData, setFormData] = useState(policy);
+  const [formData, setFormData] = useState({
+    maxContactsPerDay: 2,
+    quietHoursStart: '22:00',
+    quietHoursEnd: '08:00',
+    maxDiscountPct: 15,
+    minOrderValue: 2000,
+    voiceType: 'Female (Professional / Empathetic)',
+    languageMode: 'Hinglish (Hindi + English blend)',
+    personaPrompt:
+      'You are a friendly, empathetic customer support agent for demo.pay. Speak in Hinglish. Offer a 10% discount if the customer hesitates.',
+  });
   const [isSavingG, setIsSavingG] = useState(false);
   const [isSavingP, setIsSavingP] = useState(false);
 
   useEffect(() => {
-    setFormData(policy);
-  }, [policy]);
+    api('/api/policies')
+      .then((res) => {
+        if (res.policy) {
+          setFormData({
+            maxContactsPerDay: res.policy.maxContactsPer24h ?? 2,
+            maxDiscountPct: res.policy.maxDiscountPct ?? 15,
+            quietHoursStart: res.policy.quietHoursStart ?? '22:00',
+            quietHoursEnd: res.policy.quietHoursEnd ?? '08:00',
+            minOrderValue: Math.round((res.policy.minOrderValuePaise ?? 200000) / 100),
+            voiceType: res.policy.voiceType ?? 'Female (Professional / Empathetic)',
+            languageMode: res.policy.languageMode ?? 'Hinglish (Hindi + English blend)',
+            personaPrompt: res.policy.personaPrompt ?? '',
+          });
+        }
+      })
+      .catch((err) => console.warn('Policy fetch error:', err));
+  }, []);
 
-  const handleSaveGuardrails = () => {
+  const handleSaveGuardrails = async () => {
     setIsSavingG(true);
-    updatePolicy(formData);
-    setTimeout(() => setIsSavingG(false), 500);
+    try {
+      await api('/api/policies', {
+        method: 'PUT',
+        body: JSON.stringify({
+          maxContactsPerDay: formData.maxContactsPerDay,
+          maxDiscountPct: formData.maxDiscountPct,
+          quietHoursStart: formData.quietHoursStart,
+          quietHoursEnd: formData.quietHoursEnd,
+          minOrderValue: formData.minOrderValue,
+        }),
+      });
+      setTimeout(() => setIsSavingG(false), 800);
+    } catch (err) {
+      console.error('Failed to save policy guardrails:', err);
+      setIsSavingG(false);
+    }
   };
 
-  const handleSavePersona = () => {
+  const handleSavePersona = async () => {
     setIsSavingP(true);
-    updatePolicy(formData);
-    setTimeout(() => setIsSavingP(false), 500);
+    try {
+      await api('/api/policies', {
+        method: 'PUT',
+        body: JSON.stringify({
+          voiceType: formData.voiceType,
+          languageMode: formData.languageMode,
+          personaPrompt: formData.personaPrompt,
+        }),
+      });
+      setTimeout(() => setIsSavingP(false), 800);
+    } catch (err) {
+      console.error('Failed to save persona:', err);
+      setIsSavingP(false);
+    }
   };
 
   return (
@@ -362,14 +546,14 @@ function AiSetupView() {
       <Card>
         <CardHeader>
           <CardTitle>Current Guardrails</CardTitle>
-          <CardDescription>AI agent behavior boundaries.</CardDescription>
+          <CardDescription>Deterministic AI policy constraints enforced before intervention.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <Label>Max Contacts / 24h</Label>
-            <Select 
-              value={formData.maxContactsPerDay.toString()} 
-              onValueChange={(val) => setFormData({...formData, maxContactsPerDay: parseInt(val)})}
+            <Select
+              value={formData.maxContactsPerDay?.toString() ?? '2'}
+              onValueChange={(val) => setFormData({ ...formData, maxContactsPerDay: parseInt(val) })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select attempts" />
@@ -387,10 +571,12 @@ function AiSetupView() {
               <Label>Maximum Authorized Discount (%)</Label>
               <span className="text-sm text-muted-foreground font-semibold">{formData.maxDiscountPct}% off</span>
             </div>
-            <Slider 
-              value={formData.maxDiscountPct} 
-              min={0} max={100} step={1}
-              onValueChange={(val) => setFormData({...formData, maxDiscountPct: val})}
+            <Slider
+              value={[formData.maxDiscountPct]}
+              min={0}
+              max={100}
+              step={1}
+              onValueChange={(val) => setFormData({ ...formData, maxDiscountPct: val[0] })}
               className="py-2"
             />
           </div>
@@ -398,43 +584,50 @@ function AiSetupView() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Quiet Hours Start</Label>
-              <Input type="time" value={formData.quietHoursStart} onChange={(e) => setFormData({...formData, quietHoursStart: e.target.value})} />
+              <Input
+                type="time"
+                value={formData.quietHoursStart}
+                onChange={(e) => setFormData({ ...formData, quietHoursStart: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
               <Label>Quiet Hours End</Label>
-              <Input type="time" value={formData.quietHoursEnd} onChange={(e) => setFormData({...formData, quietHoursEnd: e.target.value})} />
+              <Input
+                type="time"
+                value={formData.quietHoursEnd}
+                onChange={(e) => setFormData({ ...formData, quietHoursEnd: e.target.value })}
+              />
             </div>
           </div>
 
           <div className="space-y-2">
             <Label>Min Order Value for Voice Call (₹)</Label>
-            <Input 
-              type="number" 
-              value={formData.minOrderValue} 
-              onChange={(e) => setFormData({...formData, minOrderValue: parseInt(e.target.value) || 0})}
+            <Input
+              type="number"
+              value={formData.minOrderValue}
+              onChange={(e) => setFormData({ ...formData, minOrderValue: parseInt(e.target.value) || 0 })}
               placeholder="e.g. 2000"
             />
           </div>
-
         </CardContent>
         <CardFooter className="border-t pt-6 bg-muted/20">
-           <Button onClick={handleSaveGuardrails} className="w-full sm:w-auto">
-             {isSavingG ? "Saved!" : "Save Policy"}
-           </Button>
+          <Button onClick={handleSaveGuardrails} className="w-full sm:w-auto">
+            {isSavingG ? 'Saved!' : 'Save Policy'}
+          </Button>
         </CardFooter>
       </Card>
 
       <Card>
         <CardHeader>
           <CardTitle>AI Persona Settings</CardTitle>
-          <CardDescription>Voice, tone, and language configuration.</CardDescription>
+          <CardDescription>Voice, tone, and language configuration for customer interactions.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <Label>Voice Type</Label>
-            <Select 
-              value={formData.voiceType} 
-              onValueChange={(val) => setFormData({...formData, voiceType: val})}
+            <Select
+              value={formData.voiceType}
+              onValueChange={(val) => setFormData({ ...formData, voiceType: val })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select voice" />
@@ -446,12 +639,12 @@ function AiSetupView() {
               </SelectContent>
             </Select>
           </div>
-          
+
           <div className="space-y-2">
             <Label>Language Mode</Label>
-            <Select 
-              value={formData.languageMode} 
-              onValueChange={(val) => setFormData({...formData, languageMode: val})}
+            <Select
+              value={formData.languageMode}
+              onValueChange={(val) => setFormData({ ...formData, languageMode: val })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select language" />
@@ -466,36 +659,250 @@ function AiSetupView() {
 
           <div className="space-y-2">
             <Label>Agent Persona Prompt</Label>
-            <Textarea 
+            <Textarea
               className="h-32 resize-none"
-              placeholder="Enter the system prompt for the AI agent..." 
-              value={formData.personaPrompt} 
-              onChange={(e) => setFormData({...formData, personaPrompt: e.target.value})}
+              placeholder="Enter the system prompt for the AI agent..."
+              value={formData.personaPrompt}
+              onChange={(e) => setFormData({ ...formData, personaPrompt: e.target.value })}
             />
-            <p className="text-xs text-muted-foreground mt-1">Provide custom instructions on how the agent should speak and negotiate.</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Custom instructions guiding negotiation, tone, and recovery strategy.
+            </p>
           </div>
-
         </CardContent>
         <CardFooter className="border-t pt-6 bg-muted/20">
-           <Button onClick={handleSavePersona} className="w-full sm:w-auto">
-             {isSavingP ? "Synced!" : "Save & Sync"}
-           </Button>
+          <Button onClick={handleSavePersona} className="w-full sm:w-auto">
+            {isSavingP ? 'Synced!' : 'Save & Sync'}
+          </Button>
         </CardFooter>
       </Card>
     </div>
   );
 }
 
-// Mock audit data
-const AUDIT_LOGS = [
-  { id: 'a_1', time: '10:42 AM', user: 'Rahul Verma', trigger: 'Bank Timeout', status: 'Recovered', amount: 8999 },
-  { id: 'a_2', time: '09:15 AM', user: 'Priya Sharma', trigger: 'Insufficient Funds', status: 'Failed (Retry later)', amount: 0 },
-  { id: 'a_3', time: 'Yesterday', user: 'Amit Patel', trigger: 'UPI App Unreachable', status: 'Recovered', amount: 3499 },
-];
+function CaseDetailDialog({ caseId, open, onOpenChange }) {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!caseId || !open) {
+      setDetail(null);
+      return;
+    }
+    setLoading(true);
+    api(`/api/cases/${caseId}`)
+      .then((res) => setDetail(res.case))
+      .catch((err) => console.error('Case detail fetch error:', err))
+      .finally(() => setLoading(false));
+  }, [caseId, open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-center justify-between gap-4 mr-6">
+            <DialogTitle className="text-xl">Case Details</DialogTitle>
+            {detail && <CaseStatusBadge status={detail.status} />}
+          </div>
+          <DialogDescription className="text-xs font-mono">
+            {caseId}
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="py-12 flex items-center justify-center gap-2 text-muted-foreground">
+            <RotateCw className="h-5 w-5 animate-spin" /> Loading case telemetry...
+          </div>
+        ) : detail ? (
+          <div className="space-y-6 py-2">
+            {/* Customer & Order Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-muted/30 p-3 rounded-lg border text-sm">
+              <div>
+                <span className="text-xs text-muted-foreground block">Customer</span>
+                <span className="font-semibold">{detail.customer?.name ?? 'Guest'}</span>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground block">Phone</span>
+                <span className="font-mono text-xs">{detail.customer?.phone ?? 'N/A'}</span>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground block">At Risk</span>
+                <span className="font-semibold text-destructive">
+                  ₹{(detail.atRiskAmountInPaise / 100).toLocaleString()}
+                </span>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground block">Trigger Mode</span>
+                <span className="font-medium">{detail.triggerLabel}</span>
+              </div>
+            </div>
+
+            {/* AI Diagnosis Transcript */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                <Clock className="h-4 w-4 text-primary" /> AI Diagnosis & Reasoning Transcript
+              </h4>
+              <div className="bg-muted/40 p-3 rounded-lg border space-y-2">
+                {detail.logs && detail.logs.length > 0 ? (
+                  detail.logs.map((log) => (
+                    <div key={log.id} className="text-xs space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                          {log.level}
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <p className="text-foreground leading-relaxed pl-1">{log.message}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">No diagnostic logs recorded yet.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Recovery Actions Dispatched */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                <Zap className="h-4 w-4 text-amber-500" /> Dispatched Interventions
+              </h4>
+              <div className="space-y-2">
+                {detail.actions && detail.actions.length > 0 ? (
+                  detail.actions.map((act) => (
+                    <div key={act.id} className="p-3 border rounded-lg bg-background text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Badge variant="secondary" className="font-mono font-bold">
+                          {act.channel}
+                        </Badge>
+                        <span className="text-muted-foreground text-[10px]">
+                          Outcome: <strong className="text-foreground">{act.outcome}</strong>
+                        </span>
+                      </div>
+                      <p className="text-foreground">{act.rationale}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground italic p-2 border rounded-lg">
+                    No outbound recovery actions dispatched yet.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Payment Promises */}
+            {detail.promises && detail.promises.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" /> Payment Promises Recorded
+                </h4>
+                <div className="space-y-2">
+                  {detail.promises.map((p) => (
+                    <div key={p.id} className="p-3 border rounded-lg bg-green-500/5 text-xs flex justify-between items-center">
+                      <div>
+                        <span className="font-semibold text-green-800 dark:text-green-300">
+                          Promised for: {new Date(p.promisedFor).toLocaleString()}
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          Captured via: {p.source}
+                        </span>
+                      </div>
+                      <Badge variant="outline" className="uppercase text-[10px]">
+                        {p.status}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="py-8 text-center text-sm text-muted-foreground">Case not found.</p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function DashboardView() {
-  const kpis = useLiveFeedStore(state => state.kpis);
-  const events = useLiveFeedStore(state => state.events);
+  const kpis = useLiveFeedStore((state) => state.kpis);
+  const events = useLiveFeedStore((state) => state.events);
+  const updateKpis = useLiveFeedStore((state) => state.updateKpis);
+  const addEvent = useLiveFeedStore((state) => state.addEvent);
+
+  const [cases, setCases] = useState([]);
+  const [loadingCases, setLoadingCases] = useState(true);
+  const [selectedCaseId, setSelectedCaseId] = useState(null);
+  const [isSimulatingBatch, setIsSimulatingBatch] = useState(false);
+  const [batchCount, setBatchCount] = useState('10');
+
+  const fetchKpisAndCases = () => {
+    api('/api/analytics/summary')
+      .then((data) => {
+        updateKpis({
+          atRisk: data.atRisk,
+          recovered: data.recovered,
+          activeInterventions: data.activeInterventions,
+          recoveryRate: data.recoveryRate,
+        });
+      })
+      .catch((err) => console.warn('KPI summary fetch error:', err));
+
+    api('/api/cases')
+      .then((data) => setCases(data.cases))
+      .catch((err) => console.warn('Cases fetch error:', err))
+      .finally(() => setLoadingCases(false));
+  };
+
+  useEffect(() => {
+    fetchKpisAndCases();
+
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+    let sse;
+    try {
+      sse = new EventSource(`${baseUrl}/api/stream/events`);
+      sse.addEventListener('event', (msg) => {
+        try {
+          const parsed = JSON.parse(msg.data);
+          addEvent({
+            id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+            type: parsed.type || 'info',
+            message:
+              parsed.message ||
+              `Event: ${parsed.type}${parsed.channel ? ` via ${parsed.channel}` : ''}${
+                parsed.caseId ? ` for Case ${parsed.caseId.slice(0, 8)}...` : ''
+              }`,
+          });
+          fetchKpisAndCases();
+        } catch (e) {
+          console.warn('SSE parse error:', e);
+        }
+      });
+    } catch (sseErr) {
+      console.warn('SSE connection failed:', sseErr);
+    }
+
+    return () => {
+      if (sse) sse.close();
+    };
+  }, []);
+
+  const handleRunBatch = async () => {
+    setIsSimulatingBatch(true);
+    try {
+      const count = parseInt(batchCount, 10) || 10;
+      await api('/api/simulate/batch', {
+        method: 'POST',
+        body: JSON.stringify({ count }),
+      });
+      fetchKpisAndCases();
+    } catch (err) {
+      console.error('Batch simulation error:', err);
+    } finally {
+      setIsSimulatingBatch(false);
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
@@ -506,15 +913,22 @@ function DashboardView() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Revenue at Risk (Active)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">₹{kpis.atRisk.toLocaleString()}</div>
+            <div className="text-2xl font-bold">₹{kpis.atRisk?.toLocaleString() ?? 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">Pending recovery intervention</p>
           </CardContent>
         </Card>
         <Card className="bg-green-500/5 border-green-500/20">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Recovered Revenue (Total)</CardTitle>
+            <div className="flex justify-between items-center">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Recovered Revenue (Total)</CardTitle>
+              <Badge variant="outline" className="text-green-700 bg-green-50 text-[10px]">
+                {kpis.recoveryRate ?? 0}% Rate
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">₹{kpis.recovered.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-green-600">₹{kpis.recovered?.toLocaleString() ?? 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">Successfully rescued orders</p>
           </CardContent>
         </Card>
         <Card>
@@ -522,16 +936,65 @@ function DashboardView() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Active Interventions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpis.activeInterventions}</div>
+            <div className="text-2xl font-bold">{kpis.activeInterventions ?? 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">Calls, WhatsApp & Emails dispatched</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Batch Simulation Bar (Phase 10) */}
+      <div className="lg:col-span-3">
+        <Card className="bg-gradient-to-r from-muted/50 to-primary/5 border-border">
+          <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                <Zap className="h-5 w-5" />
+              </div>
+              <div>
+                <h4 className="font-semibold text-sm">Batch Stress & Load Simulator (Phase 10)</h4>
+                <p className="text-xs text-muted-foreground">
+                  Simulate mixed high-volume checkout failures through diagnosis, guardrails & recovery.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Select value={batchCount} onValueChange={setBatchCount}>
+                <SelectTrigger className="w-[120px] bg-background">
+                  <SelectValue placeholder="Count" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 Events</SelectItem>
+                  <SelectItem value="25">25 Events</SelectItem>
+                  <SelectItem value="50">50 Events</SelectItem>
+                  <SelectItem value="100">100 Events</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button onClick={handleRunBatch} disabled={isSimulatingBatch} className="whitespace-nowrap">
+                {isSimulatingBatch ? (
+                  <>
+                    <RotateCw className="h-4 w-4 mr-2 animate-spin" /> Simulating...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="h-4 w-4 mr-2" /> Run Batch
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Audit Table */}
       <Card className="lg:col-span-2">
-        <CardHeader>
-          <CardTitle>Intervention Audit Log</CardTitle>
-          <CardDescription>Recent agent actions and outcomes.</CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <div>
+            <CardTitle>Intervention Audit Log</CardTitle>
+            <CardDescription>Click any row to inspect real-time AI reasoning & actions.</CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" onClick={fetchKpisAndCases} className="h-8 px-2 text-xs">
+            <RotateCw className="h-3.5 w-3.5 mr-1" /> Refresh
+          </Button>
         </CardHeader>
         <CardContent>
           <Table>
@@ -545,19 +1008,35 @@ function DashboardView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {AUDIT_LOGS.map((log) => (
-                <TableRow key={log.id}>
-                  <TableCell className="font-medium text-foreground">{log.time}</TableCell>
-                  <TableCell>{log.user}</TableCell>
-                  <TableCell>{log.trigger}</TableCell>
-                  <TableCell>
-                    <Badge variant={log.status === 'Recovered' ? 'default' : 'secondary'} className={log.status === 'Recovered' ? 'bg-green-500 hover:bg-green-600 text-white' : ''}>
-                      {log.status}
-                    </Badge>
+              {loadingCases ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    Loading audit records...
                   </TableCell>
-                  <TableCell className="text-right">₹{log.amount.toLocaleString()}</TableCell>
                 </TableRow>
-              ))}
+              ) : cases.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    No recovery cases recorded yet. Trigger a simulate button or run a batch above!
+                  </TableCell>
+                </TableRow>
+              ) : (
+                cases.map((c) => (
+                  <TableRow
+                    key={c.id}
+                    onClick={() => setSelectedCaseId(c.id)}
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  >
+                    <TableCell className="font-medium text-foreground text-xs">{c.time}</TableCell>
+                    <TableCell className="text-sm font-semibold">{c.user}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{c.trigger}</TableCell>
+                    <TableCell>
+                      <CaseStatusBadge status={c.status} />
+                    </TableCell>
+                    <TableCell className="text-right font-medium">₹{c.amount.toLocaleString()}</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
@@ -567,20 +1046,20 @@ function DashboardView() {
       <Card className="lg:col-span-1">
         <CardHeader>
           <CardTitle>Agent Live Feed</CardTitle>
-          <CardDescription>Real-time event stream.</CardDescription>
+          <CardDescription>Real-time event stream from SSE.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-[300px] w-full rounded-md border bg-muted/20 p-4">
+          <ScrollArea className="h-[380px] w-full rounded-md border bg-muted/20 p-4">
             {events.length === 0 ? (
               <div className="flex items-center justify-center h-full text-sm text-muted-foreground italic">
-                Listening for webhook events...
+                Listening for real-time recovery events...
               </div>
             ) : (
               <div className="space-y-4">
                 {events.map((evt) => (
                   <div key={evt.id} className="flex flex-col space-y-1 text-sm border-b pb-2 last:border-0">
-                    <span className="font-semibold text-primary">{evt.type.toUpperCase()}</span>
-                    <span className="text-muted-foreground">{evt.message}</span>
+                    <span className="font-semibold text-primary text-xs uppercase tracking-wider">{evt.type}</span>
+                    <span className="text-muted-foreground text-xs">{evt.message}</span>
                   </div>
                 ))}
               </div>
@@ -588,6 +1067,13 @@ function DashboardView() {
           </ScrollArea>
         </CardContent>
       </Card>
+
+      {/* Detail Dialog */}
+      <CaseDetailDialog
+        caseId={selectedCaseId}
+        open={Boolean(selectedCaseId)}
+        onOpenChange={(open) => !open && setSelectedCaseId(null)}
+      />
     </div>
   );
 }
@@ -605,23 +1091,23 @@ export default function Admin() {
         </div>
       </div>
 
-      <Tabs defaultValue="inventory" className="w-full">
+      <Tabs defaultValue="dashboard" className="w-full">
         <div className="sticky top-[108px] z-10 bg-background pb-2 pt-2 border-b">
           <TabsList className="grid w-full grid-cols-3 max-w-md">
-            <TabsTrigger value="inventory">Inventory</TabsTrigger>
-            <TabsTrigger value="policy">AI Setup</TabsTrigger>
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+            <TabsTrigger value="policy">AI Setup</TabsTrigger>
+            <TabsTrigger value="inventory">Inventory</TabsTrigger>
           </TabsList>
         </div>
         <div className="min-h-[600px] mt-4">
-          <TabsContent value="inventory" className="mt-6 m-0">
-            <AddItemView />
+          <TabsContent value="dashboard" className="mt-6 m-0">
+            <DashboardView />
           </TabsContent>
           <TabsContent value="policy" className="mt-6 m-0">
             <AiSetupView />
           </TabsContent>
-          <TabsContent value="dashboard" className="mt-6 m-0">
-            <DashboardView />
+          <TabsContent value="inventory" className="mt-6 m-0">
+            <AddItemView />
           </TabsContent>
         </div>
       </Tabs>
