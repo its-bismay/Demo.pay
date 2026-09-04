@@ -67,9 +67,28 @@ function StoreAuthGate({ onLogin }) {
   const { register, handleSubmit, formState: { errors } } = useForm({
     resolver: zodResolver(loginSchema),
   });
+  const { login } = useSessionStore();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const onSubmit = (data) => {
-    onLogin(data);
+  const onSubmit = async (data) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/customer/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to create session');
+      const { customer, token } = await res.json();
+      login(customer, token);
+      if (onLogin) onLogin(customer);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -114,7 +133,11 @@ function StoreAuthGate({ onLogin }) {
               {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
             </div>
 
-            <Button type="submit" className="w-full">Enter Store</Button>
+            {error && <p className="text-sm text-destructive text-center">{error}</p>}
+
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Enter Store'}
+            </Button>
           </form>
         </CardContent>
       </Card>
@@ -453,7 +476,7 @@ export default function Store() {
   const setCustomer = useSessionStore((state) => state.setCustomer);
 
   // DEV PREVIEW: set to true to skip auth gate and view store UI without backend
-  const DEV_PREVIEW = true;
+  const DEV_PREVIEW = import.meta.env.VITE_DEV_PREVIEW === 'true';
 
   if (!customer && !DEV_PREVIEW) {
     return <StoreAuthGate onLogin={setCustomer} />;

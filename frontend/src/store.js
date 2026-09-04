@@ -1,14 +1,26 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export const useHealthStore = create(() => ({
   status: 'ok',
 }));
 
-export const useSessionStore = create((set) => ({
-  customer: null,
-  setCustomer: (customer) => set({ customer }),
-  clearCustomer: () => set({ customer: null }),
-}));
+export const useSessionStore = create(
+  persist(
+    (set) => ({
+      customer: null,
+      token: null,
+      setCustomer: (customer) => set({ customer }),
+      setToken: (token) => set({ token }),
+      login: (customer, token) => set({ customer, token }),
+      logout: () => set({ customer: null, token: null }),
+    }),
+    {
+      name: 'demopay-session',   // localStorage key
+      partialize: (state) => ({ customer: state.customer, token: state.token }),
+    }
+  )
+);
 
 export const useCartStore = create((set) => ({
   cartItems: [],
