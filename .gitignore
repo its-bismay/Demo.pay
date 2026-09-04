@@ -54,3 +54,5 @@ current_ui_screenshots/
 # OS generated files
 .DS_Store
 Thumbs.db
+api_keys_setup_guide.md
+hosting_guide.md
