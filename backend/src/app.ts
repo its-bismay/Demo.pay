@@ -1,0 +1,33 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { pinoHttp } from 'pino-http';
+import { env } from './env';
+import { errorHandler } from './middleware/errorHandler';
+import healthRouter from './routes/health';
+
+const app = express();
+
+// Security
+app.use(helmet());
+app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }));
+
+// Structured logging on every request
+app.use(pinoHttp());
+
+// Body parsing — NOTE: /api/webhooks/razorpay must use raw body,
+// so express.json() is NOT applied globally for that route.
+// It is applied to all other routes here:
+app.use((req, res, next) => {
+  if (req.path === '/api/webhooks/razorpay') return next(); // skip for webhook
+  express.json()(req, res, next);
+});
+app.use(express.urlencoded({ extended: true }));
+
+// Routes (add more here in later phases)
+app.use('/api', healthRouter);
+
+// Centralized error handler — must be LAST
+app.use(errorHandler);
+
+export default app;

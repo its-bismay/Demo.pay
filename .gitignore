@@ -28,6 +28,11 @@ requirments/
 **/requirements/
 **/requirments/
 
+current_ui_screenshots/
+current_ui_screenshots/
+**/current_ui_screenshots/
+**/current_ui_screenshots/
+
 # Markdown documentation files (except README)
 *.md
 **/*.md
