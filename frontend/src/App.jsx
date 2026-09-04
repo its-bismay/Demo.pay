@@ -9,6 +9,7 @@ import { HealthGate } from '@/components/HealthGate';
 import Home from './pages/Home';
 import Store from './pages/Store';
 import Admin from './pages/Admin';
+import { useCartStore, useSessionStore } from './store';
 
 const Layout = () => {
   return (
@@ -27,6 +28,31 @@ const Layout = () => {
 };
 
 const App = () => {
+  React.useEffect(() => {
+    const handleUnload = () => {
+      const { cartItems, currentOrderId } = useCartStore.getState();
+      const token = useSessionStore.getState().token;
+      if (cartItems.length > 0 && !currentOrderId && token) {
+        navigator.sendBeacon(
+          `${import.meta.env.VITE_API_BASE_URL}/api/checkout/abandon-cart`,
+          new Blob(
+            [
+              JSON.stringify({
+                cartItems: cartItems.map((i) => ({
+                  productId: i.product.id,
+                  quantity: i.quantity,
+                })),
+              }),
+            ],
+            { type: 'application/json' }
+          )
+        );
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []);
+
   return (
     <TooltipProvider>
       <BrowserRouter>

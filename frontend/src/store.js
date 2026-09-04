@@ -27,7 +27,9 @@ export const useCartStore = create((set) => ({
   cartDrawerOpen: false,
   selectedProduct: null,
   checkoutDrawerOpen: false,
+  currentOrderId: null,
   
+  setCurrentOrderId: (id) => set({ currentOrderId: id }),
   addToCart: (product) => set((state) => {
     const existing = state.cartItems.find(item => item.product.id === product.id);
     if (existing) {
@@ -42,7 +44,7 @@ export const useCartStore = create((set) => ({
   removeFromCart: (productId) => set((state) => ({
     cartItems: state.cartItems.filter(item => item.product.id !== productId)
   })),
-  clearCart: () => set({ cartItems: [] }),
+  clearCart: () => set({ cartItems: [], currentOrderId: null }),
 
   setCartDrawerOpen: (isOpen) => set({ cartDrawerOpen: isOpen }),
   setSelectedProduct: (product) => set({ selectedProduct: product }),

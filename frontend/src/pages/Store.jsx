@@ -247,8 +247,30 @@ function CartDrawer() {
   const cartItems = useCartStore(state => state.cartItems);
   const removeFromCart = useCartStore(state => state.removeFromCart);
   const setCheckoutDrawerOpen = useCartStore(state => state.setCheckoutDrawerOpen);
+  const setCurrentOrderId = useCartStore(state => state.setCurrentOrderId);
+  const [orderLoading, setOrderLoading] = useState(false);
 
   const cartTotal = cartItems.reduce((acc, item) => acc + (Math.round(item.product.priceInPaise / 100) * item.quantity), 0);
+
+  const handleProceedToCheckout = async () => {
+    setOrderLoading(true);
+    try {
+      const data = await api('/api/checkout/order', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: cartItems.map(i => ({ productId: i.product.id, quantity: i.quantity })),
+        }),
+      });
+      setCurrentOrderId(data.orderId);
+      setOpen(false);
+      setCheckoutDrawerOpen(true);
+    } catch (e) {
+      console.error('Failed to create order:', e);
+      alert('Failed to create order: ' + (e.message || 'Error'));
+    } finally {
+      setOrderLoading(false);
+    }
+  };
 
   return (
     <Sheet open={isOpen} onOpenChange={setOpen}>
@@ -293,11 +315,10 @@ function CartDrawer() {
             <Button
               className="w-full"
               size="lg"
-              onClick={() => {
-                setOpen(false);
-                setCheckoutDrawerOpen(true);
-              }}
+              disabled={orderLoading}
+              onClick={handleProceedToCheckout}
             >
+              {orderLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Proceed to Checkout
             </Button>
           </div>
@@ -333,15 +354,46 @@ function CheckoutDrawer() {
     return () => clearTimeout(timer);
   }, [isOpen, simulatingId, simulatedAction, customer, addEvent]);
 
-  const handleSimulate = (scenario, desc, id) => {
+  const handleSimulate = async (scenario, desc, id) => {
+    const orderId = useCartStore.getState().currentOrderId;
+    if (!orderId) {
+      alert('Please create an order first by proceeding to checkout.');
+      return;
+    }
     setSimulatingId(id);
-    setTimeout(() => {
-      setSimulatingId(null);
+    try {
+      const scenarioMapping = {
+        funds: 'insufficient_funds',
+        timeout: 'gateway_timeout',
+        upi: 'upi_unreachable',
+        pin: 'auth_failed',
+        success: 'successful_payment',
+      };
+      const apiScenario = scenarioMapping[id] || id;
+
+      await api('/api/checkout/simulate', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderId,
+          scenario: apiScenario,
+          paymentMethod,
+        }),
+      });
       setSimulatedAction({ type: scenario, desc });
-      addEvent({ id: Date.now().toString(), type: 'failure', message: `Payment failed for ${customer?.name} due to ${scenario}.` });
-      updateKpis({ atRisk: cartTotal, activeInterventions: 1 });
-      console.log('Simulated Action Payload:', { scenario, customer, method: paymentMethod, cartTotal });
-    }, 1500);
+      addEvent({
+        id: Date.now().toString(),
+        type: id === 'success' ? 'success' : 'failure',
+        message: id === 'success' ? `Payment captured for ${customer?.name}.` : `Payment failed for ${customer?.name} due to ${scenario}.`,
+      });
+      if (id !== 'success') {
+        updateKpis({ atRisk: cartTotal, activeInterventions: 1 });
+      }
+    } catch (e) {
+      console.error('Simulation error:', e);
+      alert('Simulation failed: ' + (e.message || 'Error'));
+    } finally {
+      setSimulatingId(null);
+    }
   };
 
   const closeConfirmation = () => {
