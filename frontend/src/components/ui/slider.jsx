@@ -1,5 +1,5 @@
+import * as React from "react"
 import { Slider as SliderPrimitive } from "@base-ui/react/slider"
-
 import { cn } from "@/lib/utils"
 
 function Slider({
@@ -8,40 +8,55 @@ function Slider({
   value,
   min = 0,
   max = 100,
+  step = 1,
+  onValueChange,
   ...props
 }) {
-  const _values = Array.isArray(value)
-    ? value
-    : Array.isArray(defaultValue)
-      ? defaultValue
-      : [min, max]
+  const normalizedValue = value !== undefined
+    ? (Array.isArray(value) ? value : [value])
+    : undefined;
+
+  const normalizedDefaultValue = defaultValue !== undefined
+    ? (Array.isArray(defaultValue) ? defaultValue : [defaultValue])
+    : undefined;
+
+  const count = normalizedValue?.length || normalizedDefaultValue?.length || 1;
+
+  const handleValueChange = (val, details) => {
+    if (onValueChange) {
+      const arr = Array.isArray(val) ? val : [val];
+      onValueChange(arr, details);
+    }
+  };
 
   return (
     <SliderPrimitive.Root
-      className={cn("data-horizontal:w-full data-vertical:h-full", className)}
+      className={cn("relative flex w-full touch-none select-none items-center py-2", className)}
       data-slot="slider"
-      defaultValue={defaultValue}
-      value={value}
+      defaultValue={normalizedDefaultValue}
+      value={normalizedValue}
       min={min}
       max={max}
-      thumbAlignment="edge"
+      step={step}
+      onValueChange={handleValueChange}
       {...props}
     >
-      <SliderPrimitive.Control className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-vertical:h-full data-vertical:min-h-40 data-vertical:w-auto data-vertical:flex-col">
+      <SliderPrimitive.Control className="relative flex w-full items-center">
         <SliderPrimitive.Track
           data-slot="slider-track"
-          className="relative grow overflow-hidden rounded-full bg-input/90 select-none data-horizontal:h-2 data-horizontal:w-full data-vertical:h-full data-vertical:w-2"
+          className="relative h-2 w-full grow overflow-hidden rounded-full bg-secondary"
         >
           <SliderPrimitive.Indicator
             data-slot="slider-range"
-            className="bg-primary select-none data-horizontal:h-full data-vertical:w-full"
+            className="absolute h-full bg-primary rounded-full"
           />
         </SliderPrimitive.Track>
-        {Array.from({ length: _values.length }, (_, index) => (
+        {Array.from({ length: count }, (_, index) => (
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             key={index}
-            className="block h-4 w-6 shrink-0 rounded-full bg-white shadow-md ring-1 ring-black/10 transition-[color,box-shadow,background-color] select-none not-dark:bg-clip-padding hover:ring-4 hover:ring-ring/30 focus-visible:ring-4 focus-visible:ring-ring/30 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 data-vertical:h-6 data-vertical:w-4"
+            index={index}
+            className="block h-5 w-5 rounded-full border-2 border-primary bg-background shadow-md ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 cursor-grab active:cursor-grabbing hover:scale-110"
           />
         ))}
       </SliderPrimitive.Control>
@@ -50,3 +65,4 @@ function Slider({
 }
 
 export { Slider }
+

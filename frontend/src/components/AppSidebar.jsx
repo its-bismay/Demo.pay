@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Store, ShieldCheck, User } from 'lucide-react';
+import { Home, Store, ShieldCheck, User, LogOut } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import logoImage from '@/assets/icon.png';
 import {
@@ -14,7 +14,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { useSessionStore } from '@/store';
+import { useSessionStore, useCartStore } from '@/store';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
 const items = [
@@ -27,6 +27,7 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const customer = useSessionStore((state) => state.customer);
+  const logout = useSessionStore((state) => state.logout);
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
 
@@ -65,15 +66,30 @@ export function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
         {customer ? (
-          <div className="flex items-center gap-2 overflow-hidden py-1 px-2">
-            <div className="h-8 w-8 rounded-full bg-sidebar-primary/10 flex items-center justify-center shrink-0">
-              <User className="h-4 w-4 text-sidebar-primary" />
+          <div className="flex items-center justify-between gap-2 overflow-hidden py-1 px-2">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <div className="h-8 w-8 rounded-full bg-sidebar-primary/10 flex items-center justify-center shrink-0">
+                <User className="h-4 w-4 text-sidebar-primary" />
+              </div>
+              {!isCollapsed && (
+                <div className="flex flex-col truncate">
+                  <span className="text-sm font-medium truncate">{customer.name}</span>
+                  <span className="text-xs text-sidebar-foreground/60 truncate">Customer</span>
+                </div>
+              )}
             </div>
             {!isCollapsed && (
-              <div className="flex flex-col truncate">
-                <span className="text-sm font-medium truncate">{customer.name}</span>
-                <span className="text-xs text-sidebar-foreground/60 truncate">Customer</span>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  useCartStore.getState().clearCart();
+                }}
+                className="text-muted-foreground hover:text-destructive p-1 rounded transition-colors"
+                title="Log out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
             )}
           </div>
         ) : (
@@ -85,3 +101,4 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall } from 'lucide-react';
+import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall, LogOut, User } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -118,6 +118,14 @@ function ProductGrid() {
 
   const categories = ['All', ...new Set(products.map(p => p.category))];
 
+  const customer = useSessionStore(state => state.customer);
+  const logout = useSessionStore(state => state.logout);
+
+  const handleLogout = () => {
+    logout();
+    useCartStore.getState().clearCart();
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-card p-4 rounded-lg border">
@@ -130,7 +138,7 @@ function ProductGrid() {
           <Input placeholder="Search products..." className="pl-9 bg-background" />
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <Tabs value={activeCategory} onValueChange={setActiveCategory} className="hidden md:block">
             <TabsList>
               {categories.map(cat => (
@@ -138,6 +146,22 @@ function ProductGrid() {
               ))}
             </TabsList>
           </Tabs>
+
+          {customer && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary/80 border text-xs text-foreground shrink-0">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-medium truncate max-w-[100px] sm:max-w-[140px]">{customer.name}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 ml-1 text-muted-foreground hover:text-destructive p-0"
+                onClick={handleLogout}
+                title="Log out session"
+              >
+                <LogOut className="h-3 w-3" />
+              </Button>
+            </div>
+          )}
 
           <Button variant="outline" size="icon" className="relative shrink-0" onClick={() => useCartStore.getState().setCartDrawerOpen(true)}>
             <ShoppingBag className="h-5 w-5" />
@@ -544,12 +568,10 @@ function CheckoutDrawer() {
 
 export default function Store() {
   const customer = useSessionStore((state) => state.customer);
+  const token = useSessionStore((state) => state.token);
   const setCustomer = useSessionStore((state) => state.setCustomer);
 
-  // DEV PREVIEW: set to true to skip auth gate and view store UI without backend
-  const DEV_PREVIEW = import.meta.env.VITE_DEV_PREVIEW === 'true';
-
-  if (!customer && !DEV_PREVIEW) {
+  if (!customer || !token) {
     return <StoreAuthGate onLogin={setCustomer} />;
   }
 

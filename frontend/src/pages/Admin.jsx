@@ -573,11 +573,14 @@ function AiSetupView() {
               <span className="text-sm text-muted-foreground font-semibold">{formData.maxDiscountPct}% off</span>
             </div>
             <Slider
-              value={[formData.maxDiscountPct]}
+              value={[formData.maxDiscountPct ?? 15]}
               min={0}
               max={100}
               step={1}
-              onValueChange={(val) => setFormData({ ...formData, maxDiscountPct: val[0] })}
+              onValueChange={(val) => {
+                const discount = Array.isArray(val) ? val[0] : val;
+                setFormData((prev) => ({ ...prev, maxDiscountPct: Number(discount) }));
+              }}
               className="py-2"
             />
           </div>
