@@ -1,7 +1,5 @@
 import { pgTable, uuid, text, integer, boolean, timestamp, numeric, jsonb, pgEnum } from 'drizzle-orm/pg-core';
 
-// ─── Enums ───────────────────────────────────────────────────────────────────
-
 export const failureModeEnum = pgEnum('failure_mode', [
   'GATEWAY_TIMEOUT', 'INSUFFICIENT_FUNDS', 'UPI_UNREACHABLE',
   'AUTH_FAILED', 'MANDATE_DECLINED', 'CHECKOUT_ABANDONED', 'INVOICE_OVERDUE',
@@ -14,8 +12,6 @@ export const caseStatusEnum = pgEnum('case_status', [
 
 export const channelEnum = pgEnum('channel', ['VOICE', 'WHATSAPP', 'EMAIL', 'RETRY']);
 
-// ─── merchants ────────────────────────────────────────────────────────────────
-
 export const merchants = pgTable('merchants', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
@@ -23,8 +19,6 @@ export const merchants = pgTable('merchants', {
   razorpayKeySecretEnc: text('razorpay_key_secret_enc').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
-
-// ─── products ─────────────────────────────────────────────────────────────────
 
 export const products = pgTable('products', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -44,19 +38,15 @@ export const products = pgTable('products', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-// ─── customers ────────────────────────────────────────────────────────────────
-
 export const customers = pgTable('customers', {
   id: uuid('id').primaryKey().defaultRandom(),
   merchantId: uuid('merchant_id').references(() => merchants.id).notNull(),
   name: text('name').notNull(),
   phone: text('phone').default(''),
   email: text('email').notNull(),
-  city: text('city'),           // collected optionally — not in current auth form
+  city: text('city'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
-
-// ─── orders ───────────────────────────────────────────────────────────────────
 
 export const orders = pgTable('orders', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -64,7 +54,7 @@ export const orders = pgTable('orders', {
   customerId: uuid('customer_id').references(() => customers.id).notNull(),
   razorpayOrderId: text('razorpay_order_id'),
   amountInPaise: integer('amount_in_paise').notNull(),
-  status: text('status').default('created').notNull(), // created | attempted | paid
+  status: text('status').default('created').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -76,19 +66,15 @@ export const orderItems = pgTable('order_items', {
   priceAtTimeInPaise: integer('price_at_time_in_paise').notNull(),
 });
 
-// ─── cart_sessions ────────────────────────────────────────────────────────────
-
 export const cartSessions = pgTable('cart_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id').references(() => customers.id).notNull(),
-  items: jsonb('items').notNull(), // [{ product_id, quantity, price_at_time_in_paise }]
+  items: jsonb('items').notNull(),
   totalInPaise: integer('total_in_paise').notNull(),
-  status: text('status').default('active').notNull(), // active | converted | abandoned
+  status: text('status').default('active').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
-
-// ─── webhook_events ───────────────────────────────────────────────────────────
 
 export const webhookEvents = pgTable('webhook_events', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -99,12 +85,10 @@ export const webhookEvents = pgTable('webhook_events', {
   processed: boolean('processed').default(false).notNull(),
 });
 
-// ─── recovery_cases ───────────────────────────────────────────────────────────
-
 export const recoveryCases = pgTable('recovery_cases', {
   id: uuid('id').primaryKey().defaultRandom(),
   merchantId: uuid('merchant_id').references(() => merchants.id).notNull(),
-  orderId: uuid('order_id').references(() => orders.id),           // nullable for cart-abandon
+  orderId: uuid('order_id').references(() => orders.id),
   webhookEventId: uuid('webhook_event_id').references(() => webhookEvents.id).notNull(),
   failureMode: failureModeEnum('failure_mode').notNull(),
   status: caseStatusEnum('status').default('DETECTED').notNull(),
@@ -114,13 +98,11 @@ export const recoveryCases = pgTable('recovery_cases', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-// ─── agent_instances & logs ───────────────────────────────────────────────────
-
 export const agentInstances = pgTable('agent_instances', {
   id: uuid('id').primaryKey().defaultRandom(),
   caseId: uuid('case_id').references(() => recoveryCases.id).notNull(),
-  agentType: text('agent_type').notNull(), // diagnosis | intervention-voice | ...
-  status: text('status').notNull(),        // running | completed | failed | killed
+  agentType: text('agent_type').notNull(),
+  status: text('status').notNull(),
   startedAt: timestamp('started_at').defaultNow().notNull(),
   finishedAt: timestamp('finished_at'),
   killedBy: text('killed_by'),
@@ -129,13 +111,11 @@ export const agentInstances = pgTable('agent_instances', {
 export const agentLogs = pgTable('agent_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
   agentInstanceId: uuid('agent_instance_id').references(() => agentInstances.id).notNull(),
-  level: text('level').notNull(), // info | reasoning | tool_call | warn | error
+  level: text('level').notNull(),
   message: text('message').notNull(),
   metadata: jsonb('metadata'),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
 });
-
-// ─── recovery_actions ─────────────────────────────────────────────────────────
 
 export const recoveryActions = pgTable('recovery_actions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -144,11 +124,9 @@ export const recoveryActions = pgTable('recovery_actions', {
   channel: channelEnum('channel').notNull(),
   rationale: text('rationale').notNull(),
   policyChecksPassed: jsonb('policy_checks_passed').notNull(),
-  outcome: text('outcome').notNull(), // sent | failed | recovered | no_response
+  outcome: text('outcome').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
-
-// ─── payment_promises ─────────────────────────────────────────────────────────
 
 export const paymentPromises = pgTable('payment_promises', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -156,12 +134,10 @@ export const paymentPromises = pgTable('payment_promises', {
   customerId: uuid('customer_id').references(() => customers.id).notNull(),
   promisedAt: timestamp('promised_at').defaultNow().notNull(),
   promisedFor: timestamp('promised_for').notNull(),
-  status: text('status').default('pending').notNull(), // pending | kept | broken
-  source: text('source').notNull(),                    // voice | whatsapp_reply
+  status: text('status').default('pending').notNull(),
+  source: text('source').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
-
-// ─── policies ─────────────────────────────────────────────────────────────────
 
 export const policies = pgTable('policies', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -179,16 +155,12 @@ export const policies = pgTable('policies', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-// ─── system_flags ─────────────────────────────────────────────────────────────
-
 export const systemFlags = pgTable('system_flags', {
   key: text('key').primaryKey(),
   value: boolean('value').default(false).notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   updatedBy: text('updated_by'),
 });
-
-// ─── contact_log ──────────────────────────────────────────────────────────────
 
 export const contactLog = pgTable('contact_log', {
   id: uuid('id').primaryKey().defaultRandom(),

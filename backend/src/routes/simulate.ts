@@ -108,7 +108,6 @@ router.post('/simulate/batch', async (req: Request, res: Response, next: NextFun
       createdEventIds.push(storedEvent.id);
     }
 
-    // Process events in parallel batches of 5 for high throughput (<20s for 100)
     const BATCH_CHUNK = 5;
     for (let i = 0; i < createdEventIds.length; i += BATCH_CHUNK) {
       const chunk = createdEventIds.slice(i, i + BATCH_CHUNK);

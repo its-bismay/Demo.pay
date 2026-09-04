@@ -8,7 +8,6 @@ import { env } from '../env';
 
 const router = Router();
 
-// GET /api/products (Admin - all products)
 router.get('/products', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const allProducts = await db
@@ -21,7 +20,6 @@ router.get('/products', async (req: Request, res: Response, next: NextFunction):
   }
 });
 
-// GET /api/store/products (Customer - only active products)
 router.get('/store/products', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const activeProducts = await db
@@ -34,7 +32,6 @@ router.get('/store/products', async (req: Request, res: Response, next: NextFunc
   }
 });
 
-// POST /api/products (Admin - create)
 router.post(
   '/products',
   validate(productCreateSchema),
@@ -51,7 +48,6 @@ router.post(
   }
 );
 
-// PATCH /api/products/:id (Admin - update)
 router.patch('/products/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
@@ -70,7 +66,6 @@ router.patch('/products/:id', async (req: Request, res: Response, next: NextFunc
   }
 });
 
-// DELETE /api/products/:id (Admin - soft delete)
 router.delete('/products/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;

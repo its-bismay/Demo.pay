@@ -8,7 +8,6 @@ const logger = pino({ level: 'info' });
 
 const startServer = async (): Promise<void> => {
   try {
-    // Verify DB connection
     await db.execute(sql`SELECT 1`);
     logger.info('✅ Database connected');
 

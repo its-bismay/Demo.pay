@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -21,14 +21,11 @@ import './workers';
 
 const app = express();
 
-// Security
 app.use(helmet());
 app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }));
 
-// Structured logging on every request
 app.use(pinoHttp());
 
-// Rate limiters (Phase 10.2)
 const checkoutLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -46,15 +43,12 @@ const webhookLimiter = rateLimit({
 app.use('/api/checkout', checkoutLimiter);
 app.use('/api/webhooks', webhookLimiter);
 
-// Body parsing — NOTE: /api/webhooks/razorpay must use raw body,
-// so express.json() is NOT applied globally for that route.
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === '/api/webhooks/razorpay') return next();
   express.json()(req, res, next);
 });
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
 app.use('/api', healthRouter);
 app.use('/api', authRouter);
 app.use('/api', productsRouter);
@@ -68,7 +62,6 @@ app.use('/api', casesRouter);
 app.use('/api', simulateRouter);
 app.use('/api', voiceRouter);
 
-// Centralized error handler — must be LAST
 app.use(errorHandler);
 
 export default app;

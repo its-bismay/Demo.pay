@@ -9,7 +9,6 @@ import { env } from '../env';
 
 const router = Router();
 
-// POST /api/auth/customer/session
 router.post(
   '/auth/customer/session',
   validate(customerSessionSchema),
@@ -17,7 +16,6 @@ router.post(
     try {
       const { name, email, phone = '' } = req.body;
 
-      // Upsert customer (same email+merchantId = same customer)
       let [customer] = await db
         .select()
         .from(customers)
@@ -31,7 +29,6 @@ router.post(
           phone: phone || '',
         }).returning();
       } else {
-        // Update name/phone in case they changed
         [customer] = await db.update(customers)
           .set({ name, ...(phone ? { phone } : {}) })
           .where(eq(customers.id, customer.id))
@@ -51,7 +48,6 @@ router.post(
   }
 );
 
-// POST /api/auth/customer/logout — just a signal; JWT is stateless so frontend clears it
 router.post('/auth/customer/logout', (req: Request, res: Response): void => {
   res.json({ success: true, message: 'Session cleared' });
 });
