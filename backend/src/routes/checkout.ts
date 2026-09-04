@@ -8,6 +8,7 @@ import { validate } from '../middleware/validate';
 import { checkoutOrderSchema, simulateSchema, abandonCartSchema } from '../schemas';
 import { createRazorpayOrder } from '../services/razorpay';
 import { webhookIngestionQueue } from '../config/queues';
+import { processWebhookIngestion } from '../workers/webhookIngestion.worker';
 import { env } from '../env';
 
 const router = Router();
@@ -173,7 +174,8 @@ router.post(
       try {
         await webhookIngestionQueue.add('process', { webhookEventId: storedEvent.id });
       } catch (qErr) {
-        console.error('Webhook queue dispatch error:', qErr);
+        console.warn('Webhook queue dispatch fallback to direct processing:', qErr);
+        await processWebhookIngestion(storedEvent.id);
       }
 
       res.json({ success: true, message: 'Simulation triggered', eventId: storedEvent.id });
@@ -257,7 +259,8 @@ router.post(
       try {
         await webhookIngestionQueue.add('process', { webhookEventId: storedEvent.id });
       } catch (qErr) {
-        console.error('Queue add failed for abandon-cart:', qErr);
+        console.warn('Queue add failed for abandon-cart, processing directly:', qErr);
+        await processWebhookIngestion(storedEvent.id);
       }
 
       res.json({ success: true, cartSessionId: cartSession.id });
