@@ -5,6 +5,7 @@ import { pinoHttp } from 'pino-http';
 import { env } from './env';
 import { errorHandler } from './middleware/errorHandler';
 import healthRouter from './routes/health';
+import authRouter from './routes/auth';
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes (add more here in later phases)
 app.use('/api', healthRouter);
+app.use('/api', authRouter);
 
 // Centralized error handler — must be LAST
 app.use(errorHandler);
