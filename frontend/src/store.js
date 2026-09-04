@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export const useHealthStore = create(() => ({
-  status: 'ok',
+export const useHealthStore = create((set) => ({
+  status: 'checking',
+  setStatus: (status) => set({ status }),
 }));
 
 export const useSessionStore = create(
