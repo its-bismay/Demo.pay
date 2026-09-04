@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone } from 'lucide-react';
+import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import logoImage from '@/assets/icon.png';
 import { api } from '@/lib/api';
 
-import { useSessionStore, useCartStore, useLiveFeedStore } from '@/store';
+import { useSessionStore, useCartStore, useLiveFeedStore, useVoiceCallStore } from '@/store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,7 +23,6 @@ import { Separator } from '@/components/ui/separator';
 const loginSchema = z.object({
   name: z.string().min(2, 'Name is too short'),
   email: z.string().email('Invalid email'),
-  phone: z.string().min(10, 'Enter a valid 10-digit phone number (e.g. 9876543210)'),
 });
 
 function StoreAuthGate({ onLogin }) {
@@ -63,20 +62,10 @@ function StoreAuthGate({ onLogin }) {
           </div>
           <CardTitle>Welcome to the Store</CardTitle>
           <CardDescription>
-            Enter your details to access the demo store. Your phone number is required so the AI agent can call you during the simulation.
+            Enter your details to access the demo store and test autonomous revenue recovery.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-6 p-4 rounded-md bg-secondary/50 border border-secondary text-sm flex gap-3">
-            <AlertCircle className="h-5 w-5 text-primary shrink-0" />
-            <div>
-              <p className="font-semibold mb-1">WhatsApp Sandbox Setup</p>
-              <p className="text-muted-foreground">
-                Before you continue, please send <strong>join example-word</strong> to <strong>+1 415 523 8886</strong> on WhatsApp to opt-in to the demo messages.
-              </p>
-            </div>
-          </div>
-
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
@@ -88,12 +77,6 @@ function StoreAuthGate({ onLogin }) {
               <Label htmlFor="email">Email</Label>
               <Input id="email" type="email" placeholder="john@example.com" {...register('email')} />
               {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number (with Country Code)</Label>
-              <Input id="phone" placeholder="+919876543210" {...register('phone')} />
-              {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
             </div>
 
             {error && <p className="text-sm text-destructive text-center">{error}</p>}
@@ -354,6 +337,33 @@ function CheckoutDrawer() {
     return () => clearTimeout(timer);
   }, [isOpen, simulatingId, simulatedAction, customer, addEvent]);
 
+  const triggerCall = useVoiceCallStore(state => state.triggerCall);
+
+  const startVoiceCall = async (targetOrderId) => {
+    const oid = targetOrderId || useCartStore.getState().currentOrderId;
+    try {
+      if (oid) {
+        const data = await api('/api/voice/initiate', {
+          method: 'POST',
+          body: JSON.stringify({ orderId: oid }),
+        });
+        triggerCall(data);
+        return;
+      }
+    } catch (e) {
+      console.warn('Voice call initiate error:', e);
+    }
+    // Fallback data
+    triggerCall({
+      orderId: oid,
+      customerName: customer?.name || 'Customer',
+      productName: cartItems[0]?.product?.name || 'Order Items',
+      amountInRs: cartTotal || 2499,
+      discountPct: 10,
+      script: `Namaste ${customer?.name || 'Customer'}! Main Demo.pay recovery desk se Aditi baat kar rahi hoon. Maine dekha aapka payment complete nahi ho paya. Humne aapke liye ek special 10% discount activate kiya hai. Kya aap abhi order complete karna chahenge ya kal schedule karein?`,
+    });
+  };
+
   const handleSimulate = async (scenario, desc, id) => {
     const orderId = useCartStore.getState().currentOrderId;
     if (!orderId) {
@@ -387,6 +397,10 @@ function CheckoutDrawer() {
       });
       if (id !== 'success') {
         updateKpis({ atRisk: cartTotal, activeInterventions: 1 });
+        // Auto-call recovery agent in 3 seconds
+        setTimeout(() => {
+          startVoiceCall(orderId);
+        }, 3000);
       }
     } catch (e) {
       console.error('Simulation error:', e);
@@ -463,6 +477,17 @@ function CheckoutDrawer() {
                   {simulatingId === 'success' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Successful Payment
                 </Button>
+
+                <div className="pt-2 border-t mt-2">
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary gap-2"
+                    onClick={() => startVoiceCall()}
+                  >
+                    <Phone className="h-4 w-4 text-primary animate-pulse" />
+                    📞 Talk to AI Voice Agent (Direct Call)
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -480,14 +505,29 @@ function CheckoutDrawer() {
                 <div className="bg-muted p-3 rounded-md text-xs font-mono text-muted-foreground">
                   Webhook payload injected into the event queue successfully.
                 </div>
-                <p className="text-primary font-medium animate-pulse pt-2">
-                  Expect a phone call or WhatsApp message in ~5 seconds...
-                </p>
+                <div className="bg-primary/10 border border-primary/20 p-3 rounded-md space-y-2">
+                  <p className="text-primary font-medium animate-pulse text-xs">
+                    🔔 Autonomous Voice Agent (Aditi) is calling your browser now...
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2 text-xs"
+                    onClick={() => {
+                      const oid = useCartStore.getState().currentOrderId;
+                      closeConfirmation();
+                      startVoiceCall(oid);
+                    }}
+                  >
+                    <PhoneCall className="h-3.5 w-3.5 animate-bounce" />
+                    Answer AI Recovery Call
+                  </Button>
+                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={closeConfirmation}>Understood</AlertDialogAction>
+            <AlertDialogAction onClick={closeConfirmation}>Close</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

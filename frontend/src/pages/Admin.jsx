@@ -9,6 +9,7 @@ import {
   Clock,
   User,
   Phone,
+  PhoneCall,
   Mail,
   CheckCircle2,
   AlertTriangle,
@@ -44,7 +45,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { useLiveFeedStore } from '@/store';
+import { useLiveFeedStore, useVoiceCallStore } from '@/store';
 import { api } from '@/lib/api';
 
 const INITIAL_PRODUCTS = [];
@@ -683,6 +684,7 @@ function AiSetupView() {
 function CaseDetailDialog({ caseId, open, onOpenChange }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(false);
+  const triggerCall = useVoiceCallStore((state) => state.triggerCall);
 
   useEffect(() => {
     if (!caseId || !open) {
@@ -695,6 +697,21 @@ function CaseDetailDialog({ caseId, open, onOpenChange }) {
       .catch((err) => console.error('Case detail fetch error:', err))
       .finally(() => setLoading(false));
   }, [caseId, open]);
+
+  const handleLaunchVoiceCall = () => {
+    if (!detail) return;
+    onOpenChange(false);
+    const amountInRs = Math.round((detail.atRiskAmountInPaise || 249900) / 100);
+    const custName = detail.customer?.name || 'Customer';
+    triggerCall({
+      caseId: detail.id,
+      customerName: custName,
+      productName: 'Store Order',
+      amountInRs,
+      discountPct: 10,
+      script: `Namaste ${custName}! Main Demo.pay recovery desk se Aditi baat kar rahi hoon. Maine dekha aapka ₹${amountInRs.toLocaleString()} ka order complete nahi ho paya tha. Humne aapke liye 10% instant discount unlock kiya hai. Kya aap abhi order complete karna chahenge ya kal schedule karein?`,
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -715,6 +732,23 @@ function CaseDetailDialog({ caseId, open, onOpenChange }) {
           </div>
         ) : detail ? (
           <div className="space-y-6 py-2">
+            {/* Direct Voice Call Trigger Banner */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+              <div className="space-y-0.5">
+                <h5 className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                  <PhoneCall className="h-3.5 w-3.5" /> Interactive AI Voice Recovery
+                </h5>
+                <p className="text-[11px] text-muted-foreground">Test live conversation, persuasion & promise recording.</p>
+              </div>
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 text-xs h-8 whitespace-nowrap"
+                onClick={handleLaunchVoiceCall}
+              >
+                <Phone className="h-3.5 w-3.5 animate-pulse" /> Launch AI Call
+              </Button>
+            </div>
+
             {/* Customer & Order Summary */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-muted/30 p-3 rounded-lg border text-sm">
               <div>
@@ -722,8 +756,8 @@ function CaseDetailDialog({ caseId, open, onOpenChange }) {
                 <span className="font-semibold">{detail.customer?.name ?? 'Guest'}</span>
               </div>
               <div>
-                <span className="text-xs text-muted-foreground block">Phone</span>
-                <span className="font-mono text-xs">{detail.customer?.phone ?? 'N/A'}</span>
+                <span className="text-xs text-muted-foreground block">Contact</span>
+                <span className="font-mono text-xs truncate block">{detail.customer?.phone || detail.customer?.email || 'N/A'}</span>
               </div>
               <div>
                 <span className="text-xs text-muted-foreground block">At Risk</span>

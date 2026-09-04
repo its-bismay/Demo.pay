@@ -16,6 +16,7 @@ import analyticsRouter from './routes/analytics';
 import streamRouter from './routes/stream';
 import casesRouter from './routes/cases';
 import simulateRouter from './routes/simulate';
+import voiceRouter from './routes/voice';
 import './workers';
 
 const app = express();
@@ -65,6 +66,7 @@ app.use('/api', analyticsRouter);
 app.use('/api', streamRouter);
 app.use('/api', casesRouter);
 app.use('/api', simulateRouter);
+app.use('/api', voiceRouter);
 
 // Centralized error handler — must be LAST
 app.use(errorHandler);

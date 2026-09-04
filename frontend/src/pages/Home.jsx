@@ -21,10 +21,10 @@ const techStack = [
 ];
 
 const walkthroughSteps = [
-  'Navigate to the Store tab and enter your name and real phone number (required for the demo call).',
+  'Navigate to the Store tab and enter your name and email to enter the demo store.',
   'Click on any product and hit "Add to Bag" to open the Checkout Drawer.',
   'Instead of a real payment, click one of the "Simulate Outcome" buttons to inject a synthetic failure.',
-  'Wait ~5 seconds. Your phone will ring with a Hinglish voice agent offering help and a recovery link.',
+  'Wait ~3 seconds. An interactive AI Voice Agent will call you right in the browser, offering a discount and convincing you to recover the order.',
   'Navigate to the Admin tab to see the live KPI updates, Audit Table, and Agent Reasoning traces.',
 ];
 

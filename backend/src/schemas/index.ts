@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const customerSessionSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  phone: z.string().min(10),
+  phone: z.string().optional().default(''),
 });
 
 export const productCreateSchema = z.object({

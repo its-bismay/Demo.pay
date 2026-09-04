@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
 import { HealthGate } from '@/components/HealthGate';
+import { VoiceCallModal } from '@/components/VoiceCallModal';
 
 import Home from './pages/Home';
 import Store from './pages/Store';
@@ -22,6 +23,7 @@ const Layout = () => {
           </HealthGate>
         </main>
       </SidebarInset>
+      <VoiceCallModal />
       <Toaster />
     </SidebarProvider>
   );

@@ -50,7 +50,7 @@ export const customers = pgTable('customers', {
   id: uuid('id').primaryKey().defaultRandom(),
   merchantId: uuid('merchant_id').references(() => merchants.id).notNull(),
   name: text('name').notNull(),
-  phone: text('phone').notNull(),
+  phone: text('phone').default(''),
   email: text('email').notNull(),
   city: text('city'),           // collected optionally — not in current auth form
   createdAt: timestamp('created_at').defaultNow().notNull(),

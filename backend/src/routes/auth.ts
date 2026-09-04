@@ -15,25 +15,25 @@ router.post(
   validate(customerSessionSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { name, email, phone } = req.body;
+      const { name, email, phone = '' } = req.body;
 
-      // Upsert customer (same phone+merchantId = same customer)
+      // Upsert customer (same email+merchantId = same customer)
       let [customer] = await db
         .select()
         .from(customers)
-        .where(and(eq(customers.phone, phone), eq(customers.merchantId, env.MERCHANT_ID)));
+        .where(and(eq(customers.email, email), eq(customers.merchantId, env.MERCHANT_ID)));
 
       if (!customer) {
         [customer] = await db.insert(customers).values({
           merchantId: env.MERCHANT_ID,
           name,
           email,
-          phone,
+          phone: phone || '',
         }).returning();
       } else {
-        // Update name/email in case they changed
+        // Update name/phone in case they changed
         [customer] = await db.update(customers)
-          .set({ name, email })
+          .set({ name, ...(phone ? { phone } : {}) })
           .where(eq(customers.id, customer.id))
           .returning();
       }

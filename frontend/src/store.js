@@ -80,3 +80,73 @@ export const usePolicyStore = create((set) => ({
   updatePolicy: (newPolicy) =>
     set((state) => ({ policy: { ...state.policy, ...newPolicy } })),
 }));
+
+export const useVoiceCallStore = create((set) => ({
+  isOpen: false,
+  callState: 'idle', // 'idle' | 'ringing' | 'connected' | 'ended'
+  isMuted: false,
+  isSpeaking: false,
+  isListening: false,
+  callData: null,
+  transcript: [],
+  promiseResult: null,
+
+  triggerCall: (data) =>
+    set({
+      isOpen: true,
+      callState: 'ringing',
+      isMuted: false,
+      isSpeaking: false,
+      isListening: false,
+      callData: data,
+      transcript: [],
+      promiseResult: null,
+    }),
+
+  acceptCall: () =>
+    set({
+      callState: 'connected',
+    }),
+
+  declineCall: () =>
+    set({
+      isOpen: false,
+      callState: 'idle',
+      callData: null,
+    }),
+
+  endCall: () =>
+    set({
+      callState: 'ended',
+      isSpeaking: false,
+      isListening: false,
+    }),
+
+  closeModal: () =>
+    set({
+      isOpen: false,
+      callState: 'idle',
+      callData: null,
+      transcript: [],
+      promiseResult: null,
+    }),
+
+  addTranscript: (sender, text) =>
+    set((state) => ({
+      transcript: [
+        ...state.transcript,
+        {
+          id: Math.random().toString(36).slice(2, 7),
+          sender,
+          text,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ],
+    })),
+
+  setMuted: (isMuted) => set({ isMuted }),
+  setSpeaking: (isSpeaking) => set({ isSpeaking }),
+  setListening: (isListening) => set({ isListening }),
+  setPromiseResult: (promiseResult) => set({ promiseResult }),
+}));
+
