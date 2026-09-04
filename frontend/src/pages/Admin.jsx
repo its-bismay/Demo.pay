@@ -16,11 +16,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { usePolicyStore, useLiveFeedStore } from '@/store';
 
-// Mock state for products
-const INITIAL_PRODUCTS = [
-  { id: 'p_1', name: 'Pro Wireless Headphones', category: 'Electronics', price: 14999, description: 'High quality noise cancelling headphones.', discount_eligible: true, max_discount_override_pct: 10, active: true, rating_value: 4.8, rating_count: 1204, image_url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80' },
-  { id: 'p_2', name: 'Ergonomic Office Chair', category: 'Furniture', price: 12500, description: 'Comfortable chair for long working hours.', discount_eligible: false, max_discount_override_pct: null, active: true, rating_value: 4.5, rating_count: 840, image_url: 'https://images.unsplash.com/photo-1505843490538-5133c6c7d0e1?w=500&q=80' },
-];
+import { api } from '@/lib/api';
+
+// Initial products state is now empty, fetched dynamically
+const INITIAL_PRODUCTS = [];
 
 function KillSwitch() {
   const [isActive, setIsActive] = useState(false);
@@ -85,51 +84,64 @@ function AddItemView() {
   const [isDeleting, setIsDeleting] = useState(null); // id of product to delete
   const [isEditing, setIsEditing] = useState(null); // product object to edit
 
-  const handleAdd = (e) => {
+  useEffect(() => {
+    api('/api/products').then(data => setProducts(data.products)).catch(console.error);
+  }, []);
+
+  const handleAdd = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const newProduct = {
-      id: `p_${Date.now()}`,
+    const body = {
       name: formData.get('name'),
       category: formData.get('category'),
-      price: parseInt(formData.get('price')),
+      priceInPaise: parseInt(formData.get('price')) * 100,
       description: formData.get('description'),
-      discount_eligible: formData.get('discount_eligible') === 'on',
-      max_discount_override_pct: formData.get('max_discount_override_pct') ? parseInt(formData.get('max_discount_override_pct')) : null,
-      rating_value: parseFloat(formData.get('rating_value')) || 0,
-      rating_count: parseInt(formData.get('rating_count')) || 0,
-      image_url: formData.get('image_url') || '',
-      active: true,
+      discountEligible: formData.get('discount_eligible') === 'on',
+      maxDiscountOverridePct: formData.get('max_discount_override_pct') ? parseInt(formData.get('max_discount_override_pct')) : null,
+      ratingValue: parseFloat(formData.get('rating_value')) || 0,
+      ratingCount: parseInt(formData.get('rating_count')) || 0,
+      imageUrl: formData.get('image_url') || '',
     };
-    setProducts([...products, newProduct]);
-    e.target.reset();
+    try {
+      const res = await api('/api/products', { method: 'POST', body: JSON.stringify(body) });
+      setProducts([...products, res.product]);
+      e.target.reset();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const handleEditSave = (e) => {
+  const handleEditSave = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    setProducts(products.map(p => 
-      p.id === isEditing.id 
-        ? { 
-            ...p, 
-            name: formData.get('name'), 
-            price: parseInt(formData.get('price')), 
-            category: formData.get('category'),
-            description: formData.get('description'),
-            discount_eligible: formData.get('discount_eligible') === 'on',
-            max_discount_override_pct: formData.get('max_discount_override_pct') ? parseInt(formData.get('max_discount_override_pct')) : null,
-            rating_value: parseFloat(formData.get('rating_value')) || 0,
-            rating_count: parseInt(formData.get('rating_count')) || 0,
-            image_url: formData.get('image_url') || '',
-          }
-        : p
-    ));
-    setIsEditing(null);
+    const body = {
+      name: formData.get('name'),
+      priceInPaise: parseInt(formData.get('price')) * 100,
+      category: formData.get('category'),
+      description: formData.get('description'),
+      discountEligible: formData.get('discount_eligible') === 'on',
+      maxDiscountOverridePct: formData.get('max_discount_override_pct') ? parseInt(formData.get('max_discount_override_pct')) : null,
+      ratingValue: parseFloat(formData.get('rating_value')) || 0,
+      ratingCount: parseInt(formData.get('rating_count')) || 0,
+      imageUrl: formData.get('image_url') || '',
+    };
+    try {
+      const res = await api(`/api/products/${isEditing.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      setProducts(products.map(p => p.id === isEditing.id ? res.product : p));
+      setIsEditing(null);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const confirmDelete = () => {
-    setProducts(products.filter(p => p.id !== isDeleting));
-    setIsDeleting(null);
+  const confirmDelete = async () => {
+    try {
+      await api(`/api/products/${isDeleting}`, { method: 'DELETE' });
+      setProducts(products.map(p => p.id === isDeleting ? { ...p, active: false } : p));
+      setIsDeleting(null);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   return (
@@ -214,7 +226,8 @@ function AddItemView() {
                   <h4 className="font-semibold text-foreground">{product.name}</h4>
                   <div className="flex gap-2 mt-1 text-sm text-muted-foreground">
                     <Badge variant="secondary">{product.category}</Badge>
-                    <span>₹{product.price.toLocaleString()}</span>
+                    <span>₹{Math.round(product.priceInPaise / 100).toLocaleString()}</span>
+                    {!product.active && <Badge variant="destructive">Inactive</Badge>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -251,7 +264,7 @@ function AddItemView() {
             </div>
             <div className="space-y-2">
               <Label>Image URL</Label>
-              <Input name="image_url" type="url" required defaultValue={isEditing?.image_url} />
+              <Input name="image_url" type="url" required defaultValue={isEditing?.imageUrl} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -272,26 +285,26 @@ function AddItemView() {
               </div>
               <div className="space-y-2">
                 <Label>Price (₹)</Label>
-                <Input name="price" type="number" required defaultValue={isEditing?.price} min="1" />
+                <Input name="price" type="number" required defaultValue={isEditing ? Math.round(isEditing.priceInPaise / 100) : ''} min="1" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Rating (1-5)</Label>
-                <Input name="rating_value" type="number" required defaultValue={isEditing?.rating_value} min="1" max="5" step="0.1" />
+                <Input name="rating_value" type="number" required defaultValue={isEditing?.ratingValue} min="1" max="5" step="0.1" />
               </div>
               <div className="space-y-2">
                 <Label>Rating Count</Label>
-                <Input name="rating_count" type="number" required defaultValue={isEditing?.rating_count} min="0" />
+                <Input name="rating_count" type="number" required defaultValue={isEditing?.ratingCount} min="0" />
               </div>
             </div>
             <div className="flex items-center gap-2 pt-2">
-              <Switch name="discount_eligible" defaultChecked={isEditing?.discount_eligible} id="edit-discount-eligible" />
+              <Switch name="discount_eligible" defaultChecked={isEditing?.discountEligible} id="edit-discount-eligible" />
               <Label htmlFor="edit-discount-eligible">Discount Eligible</Label>
             </div>
             <div className="space-y-2">
               <Label>Item-Specific Discount Cap (%)</Label>
-              <Input name="max_discount_override_pct" type="number" defaultValue={isEditing?.max_discount_override_pct || ''} placeholder="Leave blank for global cap" min="0" max="100" />
+              <Input name="max_discount_override_pct" type="number" defaultValue={isEditing?.maxDiscountOverridePct || ''} placeholder="Leave blank for global cap" min="0" max="100" />
             </div>
             <DialogFooter className="pt-4">
               <Button type="submit">Save Changes</Button>

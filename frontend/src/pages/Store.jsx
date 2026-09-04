@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import logoImage from '@/assets/icon.png';
+import { api } from '@/lib/api';
 
 import { useSessionStore, useCartStore, useLiveFeedStore } from '@/store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,45 +18,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Separator } from '@/components/ui/separator';
 
-// Mock Data
-const MOCK_PRODUCTS = [
-  {
-    id: 'p_1',
-    name: 'Pro Wireless Headphones',
-    category: 'Electronics',
-    price: 14999,
-    rating_value: 4.8,
-    rating_count: 1204,
-    image_url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80',
-  },
-  {
-    id: 'p_2',
-    name: 'Ergonomic Office Chair',
-    category: 'Furniture',
-    price: 12500,
-    rating_value: 4.5,
-    rating_count: 840,
-    image_url: 'https://images.unsplash.com/photo-1505843490538-5133c6c7d0e1?w=500&q=80',
-  },
-  {
-    id: 'p_3',
-    name: 'Mechanical Keyboard v2',
-    category: 'Electronics',
-    price: 8999,
-    rating_value: 4.9,
-    rating_count: 2150,
-    image_url: 'https://images.unsplash.com/photo-1595225476474-87563907a212?w=500&q=80',
-  },
-  {
-    id: 'p_4',
-    name: 'Minimalist Desk Lamp',
-    category: 'Home & Household',
-    price: 3499,
-    rating_value: 4.2,
-    rating_count: 310,
-    image_url: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=500&q=80',
-  },
-];
+// MOCK_PRODUCTS removed. Fetching dynamically from backend.
 
 const loginSchema = z.object({
   name: z.string().min(2, 'Name is too short'),
@@ -146,15 +109,24 @@ function StoreAuthGate({ onLogin }) {
 }
 
 function ProductGrid() {
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
   const [activeCategory, setActiveCategory] = useState('All');
   const setSelectedProduct = useCartStore(state => state.setSelectedProduct);
   const setCheckoutDrawerOpen = useCartStore(state => state.setCheckoutDrawerOpen);
 
-  const filteredProducts = activeCategory === 'All'
-    ? MOCK_PRODUCTS
-    : MOCK_PRODUCTS.filter(p => p.category === activeCategory);
+  useEffect(() => {
+    api('/api/store/products')
+      .then(data => setProducts(data.products))
+      .catch(console.error)
+      .finally(() => setLoadingProducts(false));
+  }, []);
 
-  const categories = ['All', ...new Set(MOCK_PRODUCTS.map(p => p.category))];
+  const filteredProducts = activeCategory === 'All'
+    ? products
+    : products.filter(p => p.category === activeCategory);
+
+  const categories = ['All', ...new Set(products.map(p => p.category))];
 
   return (
     <div className="space-y-6">
@@ -204,9 +176,9 @@ function ProductGrid() {
             </CardHeader>
             <CardContent className="p-4 pt-0 pb-4">
               <div className="flex justify-between items-center mt-2">
-                <span className="font-bold text-lg">₹{product.price.toLocaleString()}</span>
+                <span className="font-bold text-lg">₹{(product.priceInPaise / 100).toLocaleString()}</span>
                 <span className="text-sm text-muted-foreground flex items-center gap-1">
-                  ⭐ {product.rating_value} ({product.rating_count})
+                  ⭐ {product.ratingValue || 'N/A'} ({product.ratingCount || 0})
                 </span>
               </div>
             </CardContent>
@@ -241,8 +213,8 @@ function ProductDetailModal() {
         </div>
         <div className="p-6 pt-2 space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-3xl font-bold">₹{selectedProduct.price.toLocaleString()}</span>
-            <span className="text-lg font-medium flex items-center gap-1">⭐ {selectedProduct.rating_value} <span className="text-sm text-muted-foreground ml-1">({selectedProduct.rating_count} ratings)</span></span>
+            <span className="text-3xl font-bold">₹{(selectedProduct.priceInPaise / 100).toLocaleString()}</span>
+            <span className="text-lg font-medium flex items-center gap-1">⭐ {selectedProduct.ratingValue || 'N/A'} <span className="text-sm text-muted-foreground ml-1">({selectedProduct.ratingCount || 0} ratings)</span></span>
           </div>
           <p className="text-base text-muted-foreground">
             This is a premium {selectedProduct.category.toLowerCase()} product. Built with high-quality materials and designed to last. Ideal for your daily usage.
@@ -276,7 +248,7 @@ function CartDrawer() {
   const removeFromCart = useCartStore(state => state.removeFromCart);
   const setCheckoutDrawerOpen = useCartStore(state => state.setCheckoutDrawerOpen);
 
-  const cartTotal = cartItems.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
+  const cartTotal = cartItems.reduce((acc, item) => acc + (Math.round(item.product.priceInPaise / 100) * item.quantity), 0);
 
   return (
     <Sheet open={isOpen} onOpenChange={setOpen}>
@@ -304,7 +276,7 @@ function CartDrawer() {
                   </div>
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-muted-foreground">Qty: {item.quantity}</span>
-                    <span className="font-bold">₹{(item.product.price * item.quantity).toLocaleString()}</span>
+                    <span className="font-bold">₹{(Math.round(item.product.priceInPaise / 100) * item.quantity).toLocaleString()}</span>
                   </div>
                 </div>
               </div>
@@ -347,7 +319,7 @@ function CheckoutDrawer() {
   const [simulatedAction, setSimulatedAction] = useState(null);
 
   const cartItems = useCartStore(state => state.cartItems);
-  const cartTotal = cartItems.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
+  const cartTotal = cartItems.reduce((acc, item) => acc + (Math.round(item.product.priceInPaise / 100) * item.quantity), 0);
 
   // Abandon timer
   useEffect(() => {
