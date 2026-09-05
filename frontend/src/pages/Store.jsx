@@ -483,7 +483,14 @@ function CartDrawer() {
             cartItems.map((item) => (
               <div key={item.product.id} className="flex gap-4 p-4 border rounded-lg bg-card">
                 <div className="w-20 h-20 rounded-md overflow-hidden bg-muted shrink-0">
-                  <img src={item.product.image_url} alt={item.product.name} className="w-full h-full object-cover" />
+                  <img
+                    src={item.product.imageUrl || item.product.image_url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80'}
+                    alt={item.product.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80';
+                    }}
+                  />
                 </div>
                 <div className="flex-1 flex flex-col justify-between">
                   <div className="flex justify-between items-start">
@@ -639,6 +646,37 @@ function CheckoutDrawer() {
           </SheetHeader>
 
           <div className="mt-2 space-y-8 px-6 pb-6">
+            {cartItems.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">
+                  Order Items ({cartItems.reduce((sum, i) => sum + i.quantity, 0)})
+                </h3>
+                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  {cartItems.map((item) => (
+                    <div key={item.product.id} className="flex items-center gap-3 p-2.5 rounded-lg border bg-card/60">
+                      <div className="w-14 h-14 rounded-md overflow-hidden bg-muted shrink-0">
+                        <img
+                          src={item.product.imageUrl || item.product.image_url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80'}
+                          alt={item.product.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.src = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80';
+                          }}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{item.product.name}</p>
+                        <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
+                      </div>
+                      <span className="text-sm font-semibold">
+                        ₹{(Math.round(item.product.priceInPaise / 100) * item.quantity).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <Separator />
+              </div>
+            )}
             {/* Payment Method */}
             <div className="space-y-4">
               <h3 className="font-semibold text-lg">Payment Method</h3>
