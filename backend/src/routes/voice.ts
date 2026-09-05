@@ -256,19 +256,22 @@ router.post('/voice/tts', async (req: Request, res: Response, next: NextFunction
 router.post('/voice/stt', upload.single('audio'), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
+      console.warn('[Voice STT] No audio file received in request');
       res.status(400).json({ error: 'No audio file received' });
       return;
     }
 
     const audioBuffer = req.file.buffer;
     const mimeType = req.file.mimetype || 'audio/webm';
+    const filename = mimeType.includes('wav') ? 'audio.wav' : 'audio.webm';
+    console.log(`[Voice STT] Received audio: ${audioBuffer.length} bytes, format: ${mimeType}`);
 
     const formData = new FormData();
     const blob = new Blob([new Uint8Array(audioBuffer)], { type: mimeType });
-    formData.append('file', blob, 'audio.webm');
-    formData.append('model', 'saaras:v2');
-    formData.append('mode', 'verbatim');
-    formData.append('language_code', 'hi-IN');
+    formData.append('file', blob, filename);
+    formData.append('model', 'saaras:v3');
+    formData.append('mode', 'codemix');
+    formData.append('language_code', 'unknown');
 
     const sarvamRes = await fetch('https://api.sarvam.ai/speech-to-text', {
       method: 'POST',
@@ -280,16 +283,18 @@ router.post('/voice/stt', upload.single('audio'), async (req: Request, res: Resp
 
     if (!sarvamRes.ok) {
       const errText = await sarvamRes.text().catch(() => '');
-      console.warn('Sarvam STT error:', sarvamRes.status, errText);
-      res.status(502).json({ error: 'STT service error', detail: errText });
+      console.error(`[Voice STT] Sarvam API error: HTTP ${sarvamRes.status} - ${errText}`);
+      res.status(502).json({ error: 'STT service error', detail: errText, status: sarvamRes.status });
       return;
     }
 
-    const sarvamData = await sarvamRes.json() as { transcript?: string; };
+    const sarvamData = (await sarvamRes.json()) as { transcript?: string; language_code?: string; language_probability?: number };
     const transcript = (sarvamData.transcript || '').trim();
+    console.log(`[Voice STT] Successfully transcribed: "${transcript}" (language: ${sarvamData.language_code || 'auto'})`);
 
-    res.json({ success: true, transcript });
-  } catch (err) {
+    res.json({ success: true, transcript, language_code: sarvamData.language_code });
+  } catch (err: any) {
+    console.error('[Voice STT] Exception during transcription:', err?.message || err);
     next(err);
   }
 });

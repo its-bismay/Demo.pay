@@ -12,6 +12,10 @@ import {
   Clock,
   Send,
   Tag,
+  Loader2,
+  Radio,
+  Activity,
+  AlertCircle
 } from 'lucide-react';
 import { useVoiceCallStore, useLiveFeedStore } from '@/store';
 import { Button } from '@/components/ui/button';
@@ -81,6 +85,8 @@ export function VoiceCallModal() {
   const [micDenied, setMicDenied] = useState(false);
   const [recordingState, setRecordingState] = useState('idle');
   const [volumeLevel, setVolumeLevel] = useState(0);
+  const [hasVoiceDetected, setHasVoiceDetected] = useState(false);
+  const [lastSttLog, setLastSttLog] = useState('Mic ready');
 
   const ringtoneRef = useRef(null);
   const transcriptContainerRef = useRef(null);
@@ -94,8 +100,11 @@ export function VoiceCallModal() {
   const freqDataRef = useRef(null);
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
-  const silenceTimerRef = useRef(null);
+  const vadIntervalRef = useRef(null);
+  const maxRecordTimerRef = useRef(null);
   const isRecordingRef = useRef(false);
+  const hasSpokenRef = useRef(false);
+  const silenceCountRef = useRef(0);
 
   const callStateRef = useRef(callState);
   const isMutedRef = useRef(isMuted);
@@ -147,39 +156,54 @@ export function VoiceCallModal() {
       const canvas = canvasRef.current;
       const analyser = analyserRef.current;
       const data = freqDataRef.current;
-      if (!canvas || !analyser || !data) { rafRef.current = requestAnimationFrame(tick); return; }
+      if (!canvas || !analyser || !data) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
       const ctx2d = canvas.getContext('2d');
-      if (!ctx2d) { rafRef.current = requestAnimationFrame(tick); return; }
-      const W = canvas.width; const H = canvas.height;
+      if (!ctx2d) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      const W = canvas.width;
+      const H = canvas.height;
       analyser.getByteFrequencyData(data);
       ctx2d.clearRect(0, 0, W, H);
+
       let sum = 0;
       for (let i = 0; i < data.length; i++) sum += data[i];
       const avg = sum / (data.length || 1);
-      setVolumeLevel(Math.round((avg / 255) * 100));
-      const n = 26; const bw = 4;
+      const curVolume = Math.min(100, Math.round((avg / 128) * 100));
+      setVolumeLevel(curVolume);
+
+      const n = 32;
+      const bw = 5;
       const gap = Math.max(3, (W - n * bw) / (n + 1));
+
       for (let i = 0; i < n; i++) {
         const di = Math.floor((i / n) * (data.length / 2));
         const val = data[di] || 0;
-        let bh;
+        let bh = 4;
+
         if (isMutedRef.current) {
           bh = 3;
+          ctx2d.fillStyle = 'rgba(239, 68, 68, 0.4)';
         } else if (isSpeakingRef.current) {
-          bh = Math.max(4, Math.sin(Date.now() / 150 + i * 0.45) * 9 + 12);
-        } else {
-          bh = Math.max(4, Math.min(H - 4, (val / 255) * (H - 4)));
-        }
-        const x = gap + i * (bw + gap); const y = (H - bh) / 2;
-        if (isMutedRef.current) {
-          ctx2d.fillStyle = 'rgba(239,68,68,0.4)';
-        } else if (isSpeakingRef.current) {
-          ctx2d.fillStyle = 'rgba(161,161,170,0.55)';
-        } else if (isRecordingRef.current && val > 18) {
+          bh = Math.max(5, Math.sin(Date.now() / 120 + i * 0.4) * 12 + 15);
+          ctx2d.fillStyle = 'rgba(161, 161, 170, 0.65)';
+        } else if (recordingState === 'sending') {
+          bh = Math.max(4, Math.sin(Date.now() / 100 + i * 0.5) * 8 + 10);
+          ctx2d.fillStyle = '#f59e0b';
+        } else if (hasSpokenRef.current || curVolume > 8) {
+          bh = Math.max(6, Math.min(H - 4, (val / 255) * (H - 4)));
           ctx2d.fillStyle = '#10b981';
         } else {
-          ctx2d.fillStyle = 'rgba(16,185,129,0.35)';
+          bh = Math.max(3, (val / 255) * (H - 8));
+          ctx2d.fillStyle = 'rgba(100, 116, 139, 0.4)';
         }
+
+        const x = gap + i * (bw + gap);
+        const y = (H - bh) / 2;
         ctx2d.beginPath();
         if (ctx2d.roundRect) ctx2d.roundRect(x, y, bw, bh, 2);
         else ctx2d.rect(x, y, bw, bh);
@@ -196,37 +220,56 @@ export function VoiceCallModal() {
     if (c) { const ctx2d = c.getContext('2d'); if (ctx2d) ctx2d.clearRect(0, 0, c.width, c.height); }
   };
 
-  const stopRecording = () => {
-    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+  const stopRecordingAndSend = () => {
+    if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
+    if (maxRecordTimerRef.current) { clearTimeout(maxRecordTimerRef.current); maxRecordTimerRef.current = null; }
     isRecordingRef.current = false;
+    setHasVoiceDetected(false);
+    hasSpokenRef.current = false;
+    silenceCountRef.current = 0;
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
   };
 
   const sendAudioToSTT = async (blob) => {
-    if (!blob || blob.size < 1000) {
-      startRecording();
+    if (!blob || blob.size < 600) {
+      setLastSttLog('Empty audio captured');
+      if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
+        startRecording();
+      }
       return;
     }
-    setRecordingState('processing');
+
+    setRecordingState('sending');
     setListening(false);
+    setLastSttLog(`Uploading ${Math.round(blob.size / 1024)}KB to Sarvam...`);
+
     try {
       const form = new FormData();
-      form.append('audio', blob, 'recording.webm');
+      form.append('audio', blob, 'speech.webm');
       const res = await fetch(`${BASE_URL}/api/voice/stt`, {
         method: 'POST',
         body: form,
       });
+
       const data = await res.json();
-      const transcript = (data.transcript || '').trim();
-      if (transcript) {
-        await handleUserReply(transcript);
+      if (res.ok && data.success && data.transcript?.trim()) {
+        const recognized = data.transcript.trim();
+        setLastSttLog(`Transcribed: "${recognized}"`);
+        await handleUserReply(recognized);
       } else {
-        startRecording();
+        setLastSttLog(data.error || 'No speech recognized');
+        if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
+          startRecording();
+        }
       }
     } catch (err) {
-      startRecording();
+      setLastSttLog(`Upload failed: ${err.message}`);
+      if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
+        startRecording();
+      }
     }
   };
 
@@ -241,16 +284,24 @@ export function VoiceCallModal() {
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') return;
 
+    if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
+    if (maxRecordTimerRef.current) { clearTimeout(maxRecordTimerRef.current); maxRecordTimerRef.current = null; }
+
     chunksRef.current = [];
     isRecordingRef.current = true;
+    hasSpokenRef.current = false;
+    silenceCountRef.current = 0;
+    setHasVoiceDetected(false);
     setRecordingState('recording');
     setListening(true);
+    setLastSttLog('Listening for speech...');
 
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : MediaRecorder.isTypeSupported('audio/webm')
-      ? 'audio/webm'
-      : '';
+    let mimeType = '';
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+      mimeType = 'audio/webm;codecs=opus';
+    } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+      mimeType = 'audio/webm';
+    }
 
     try {
       const recorder = new MediaRecorder(micStreamRef.current, mimeType ? { mimeType } : {});
@@ -272,36 +323,42 @@ export function VoiceCallModal() {
         setRecordingState('idle');
       };
 
-      recorder.start(100);
+      recorder.start(120);
 
-      let silenceSamples = 0;
-      const vadInterval = setInterval(() => {
+      vadIntervalRef.current = setInterval(() => {
         if (!isRecordingRef.current || !analyserRef.current || !freqDataRef.current) {
-          clearInterval(vadInterval);
+          if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
           return;
         }
+
         analyserRef.current.getByteFrequencyData(freqDataRef.current);
         let s = 0;
         for (let i = 0; i < freqDataRef.current.length; i++) s += freqDataRef.current[i];
         const avg = s / (freqDataRef.current.length || 1);
-        if (avg < 12) {
-          silenceSamples++;
-          if (silenceSamples >= 12) {
-            clearInterval(vadInterval);
-            if (isRecordingRef.current && mediaRecorderRef.current?.state === 'recording') {
-              stopRecording();
-            }
-          }
-        } else {
-          silenceSamples = 0;
-        }
-      }, 150);
+        const curPct = Math.min(100, Math.round((avg / 128) * 100));
 
-      silenceTimerRef.current = setTimeout(() => {
-        if (isRecordingRef.current && mediaRecorderRef.current?.state === 'recording') {
-          stopRecording();
+        if (curPct > 9) {
+          hasSpokenRef.current = true;
+          setHasVoiceDetected(true);
+          silenceCountRef.current = 0;
+        } else {
+          if (hasSpokenRef.current) {
+            silenceCountRef.current += 1;
+            if (silenceCountRef.current >= 10) {
+              if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
+              stopRecordingAndSend();
+            }
+          } else {
+            setHasVoiceDetected(false);
+          }
         }
-      }, 15000);
+      }, 140);
+
+      maxRecordTimerRef.current = setTimeout(() => {
+        if (isRecordingRef.current && mediaRecorderRef.current?.state === 'recording') {
+          stopRecordingAndSend();
+        }
+      }, 25000);
 
     } catch (err) {
       isRecordingRef.current = false;
@@ -315,6 +372,7 @@ export function VoiceCallModal() {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
+          autoGainControl: true,
           sampleRate: 16000,
           channelCount: 1,
         },
@@ -365,7 +423,7 @@ export function VoiceCallModal() {
       audioRef.current = null;
     }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    stopRecording();
+    stopRecordingAndSend();
     setListening(false);
     setRecordingState('idle');
     isSpeakingRef.current = true;
@@ -379,7 +437,7 @@ export function VoiceCallModal() {
         if (callStateRef.current === 'connected' && !isMutedRef.current) {
           startRecording();
         }
-      }, 200);
+      }, 250);
     };
 
     try {
@@ -423,7 +481,7 @@ export function VoiceCallModal() {
     return () => {
       if (audioRef.current) { try { audioRef.current.pause(); } catch (e) {} audioRef.current = null; }
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      stopRecording();
+      stopRecordingAndSend();
       stopWave();
       if (micStreamRef.current) {
         micStreamRef.current.getTracks().forEach(t => t.stop());
@@ -438,7 +496,7 @@ export function VoiceCallModal() {
 
   const handleUserReply = async (userText) => {
     if (!userText?.trim()) return;
-    stopRecording();
+    stopRecordingAndSend();
     setRecordingState('idle');
     setListening(false);
     isProcessingRef.current = true;
@@ -492,7 +550,7 @@ export function VoiceCallModal() {
       micStreamRef.current.getAudioTracks().forEach(t => { t.enabled = !next; });
     }
     if (next) {
-      stopRecording();
+      stopRecordingAndSend();
       setListening(false);
       setRecordingState('idle');
     } else {
@@ -506,7 +564,7 @@ export function VoiceCallModal() {
     if (isSpeaking || isProcessing) return;
     if (isMuted) { handleToggleMute(); return; }
     if (isRecordingRef.current) {
-      stopRecording();
+      stopRecordingAndSend();
     } else {
       startRecording();
     }
@@ -528,17 +586,91 @@ export function VoiceCallModal() {
   if (!isOpen) return null;
 
   const isRecordingActive = recordingState === 'recording';
-  const isTranscribing = recordingState === 'processing';
+  const isSending = recordingState === 'sending';
 
-  const btnClass = isSpeaking || isProcessing || isTranscribing
-    ? 'bg-zinc-800/80 text-zinc-400 border border-zinc-700/60 cursor-not-allowed'
-    : isMuted
-    ? 'bg-muted text-muted-foreground border border-dashed border-border'
-    : isRecordingActive && volumeLevel > 8
-    ? 'bg-emerald-500 text-white ring-4 ring-emerald-500/40 shadow-lg shadow-emerald-500/40 animate-pulse'
-    : isRecordingActive
-    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
-    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30';
+  let bannerText = 'Ready to speak';
+  let bannerClass = 'bg-muted/40 text-muted-foreground border-border';
+
+  if (isSpeaking) {
+    bannerText = `${agentName} is speaking...`;
+    bannerClass = 'bg-zinc-800 text-zinc-300 border-zinc-700';
+  } else if (isProcessing) {
+    bannerText = `${agentName} is thinking...`;
+    bannerClass = 'bg-primary/10 text-primary border-primary/30';
+  } else if (isSending) {
+    bannerText = 'Sending your voice to AI...';
+    bannerClass = 'bg-amber-500/20 text-amber-400 border-amber-500/40 animate-pulse';
+  } else if (isMuted) {
+    bannerText = 'Microphone muted (click Unmute to talk)';
+    bannerClass = 'bg-destructive/10 text-destructive border-destructive/30';
+  } else if (isRecordingActive && hasVoiceDetected) {
+    bannerText = `Voice Detected! (${volumeLevel}%) — listening to you...`;
+    bannerClass = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 animate-pulse';
+  } else if (isRecordingActive) {
+    bannerText = 'No voice detected — speak into your microphone';
+    bannerClass = 'bg-slate-800/80 text-slate-300 border-slate-700';
+  }
+
+  let buttonContent = null;
+  let btnClass = 'bg-emerald-600 hover:bg-emerald-500 text-white';
+
+  if (isSpeaking) {
+    btnClass = 'bg-zinc-800 text-zinc-400 border border-zinc-700 cursor-not-allowed opacity-90';
+    buttonContent = (
+      <>
+        <Volume2 className="h-5 w-5 animate-pulse text-zinc-400" />
+        <span>{agentName} Speaking...</span>
+      </>
+    );
+  } else if (isProcessing) {
+    btnClass = 'bg-primary/20 text-primary border border-primary/40 cursor-not-allowed';
+    buttonContent = (
+      <>
+        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+        <span>Thinking...</span>
+      </>
+    );
+  } else if (isSending) {
+    btnClass = 'bg-amber-600 text-white border border-amber-500 animate-pulse cursor-wait';
+    buttonContent = (
+      <>
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span>Sending Voice to AI...</span>
+      </>
+    );
+  } else if (isMuted) {
+    btnClass = 'bg-muted text-muted-foreground border border-dashed border-border';
+    buttonContent = (
+      <>
+        <MicOff className="h-5 w-5 text-muted-foreground" />
+        <span>Muted — Click to Unmute</span>
+      </>
+    );
+  } else if (isRecordingActive && hasVoiceDetected) {
+    btnClass = 'bg-emerald-500 hover:bg-emerald-600 text-white ring-4 ring-emerald-500/40 shadow-lg shadow-emerald-500/30';
+    buttonContent = (
+      <>
+        <Radio className="h-5 w-5 animate-pulse text-white" />
+        <span>Voice Detected! Click to Send Now</span>
+      </>
+    );
+  } else if (isRecordingActive) {
+    btnClass = 'bg-emerald-700 hover:bg-emerald-600 text-white';
+    buttonContent = (
+      <>
+        <Mic className="h-5 w-5" />
+        <span>Listening... Speak Now</span>
+      </>
+    );
+  } else {
+    btnClass = 'bg-emerald-600 hover:bg-emerald-500 text-white';
+    buttonContent = (
+      <>
+        <Mic className="h-5 w-5" />
+        <span>Start Speaking</span>
+      </>
+    );
+  }
 
   return (
     <AnimatePresence>
@@ -599,7 +731,7 @@ export function VoiceCallModal() {
             initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="w-full max-w-lg rounded-2xl border bg-card shadow-2xl flex flex-col overflow-hidden"
-            style={{ height: '640px', maxHeight: '94vh' }}
+            style={{ height: '650px', maxHeight: '94vh' }}
           >
             <div className="flex-none h-14 px-4 border-b flex items-center justify-between bg-muted/30">
               <div className="flex items-center gap-3">
@@ -627,7 +759,7 @@ export function VoiceCallModal() {
               </div>
               {callState === 'connected' ? (
                 <Button size="sm" variant="destructive" className="rounded-full px-4 h-8 gap-1"
-                  onClick={() => { stopRecording(); endCall(); }}>
+                  onClick={() => { stopRecordingAndSend(); endCall(); }}>
                   <PhoneOff className="h-3.5 w-3.5" />
                   <span className="text-xs">End Call</span>
                 </Button>
@@ -639,8 +771,9 @@ export function VoiceCallModal() {
             </div>
 
             {micDenied && (
-              <div className="flex-none px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-600 dark:text-amber-400 text-center">
-                Microphone access blocked — please allow microphone access in your browser settings.
+              <div className="flex-none px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-600 dark:text-amber-400 text-center flex items-center justify-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                <span>Microphone access blocked — please allow microphone in browser settings.</span>
               </div>
             )}
 
@@ -683,28 +816,28 @@ export function VoiceCallModal() {
 
             {callState === 'connected' && (
               <div className="flex-none border-t bg-muted/20 px-4 py-2.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
+                <div className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center justify-between transition-colors ${bannerClass}`}>
+                  <div className="flex items-center gap-2">
                     {isSpeaking ? (
-                      <><Volume2 className="h-4 w-4 text-zinc-400 shrink-0 animate-pulse" /><span className="text-xs font-semibold text-zinc-400 truncate">{agentName} is speaking...</span></>
-                    ) : isProcessing || isTranscribing ? (
-                      <><Sparkles className="h-4 w-4 text-primary shrink-0 animate-spin" /><span className="text-xs font-semibold text-primary truncate">{isTranscribing ? 'Transcribing your voice...' : 'Thinking...'}</span></>
-                    ) : isMuted ? (
-                      <><MicOff className="h-4 w-4 text-destructive shrink-0" /><span className="text-xs font-semibold text-destructive truncate">Microphone muted</span></>
-                    ) : isRecordingActive && volumeLevel > 8 ? (
-                      <><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0" /><span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 truncate">Recording your voice... ({volumeLevel}%)</span></>
-                    ) : isRecordingActive ? (
-                      <><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" /><span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 truncate">Recording — speak now</span></>
+                      <Volume2 className="h-3.5 w-3.5 text-zinc-300 animate-pulse" />
+                    ) : isSending ? (
+                      <Loader2 className="h-3.5 w-3.5 text-amber-400 animate-spin" />
+                    ) : isProcessing ? (
+                      <Sparkles className="h-3.5 w-3.5 text-primary animate-spin" />
+                    ) : hasVoiceDetected ? (
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
                     ) : (
-                      <><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" /><span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 truncate">Ready — speak now</span></>
+                      <span className="w-2 h-2 rounded-full bg-slate-400" />
                     )}
+                    <span>{bannerText}</span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground uppercase font-mono tracking-wider shrink-0">
-                    {isSpeaking ? 'AI' : isTranscribing ? 'STT' : isProcessing ? 'AI' : isMuted ? 'Muted' : isRecordingActive ? 'REC' : 'Ready'}
+                  <span className="text-[11px] font-mono opacity-80">
+                    Mic: {isMuted ? 'Muted' : `${volumeLevel}%`}
                   </span>
                 </div>
-                <div className="h-10 w-full bg-background/60 rounded-xl border flex items-center justify-center px-2 overflow-hidden shadow-inner">
-                  <canvas ref={canvasRef} width={340} height={36} className="w-full h-9 block" />
+
+                <div className="h-10 w-full bg-background/70 rounded-xl border flex items-center justify-center px-2 overflow-hidden shadow-inner">
+                  <canvas ref={canvasRef} width={400} height={36} className="w-full h-9 block" />
                 </div>
               </div>
             )}
@@ -715,24 +848,10 @@ export function VoiceCallModal() {
                   <button
                     type="button"
                     onClick={handleMainButtonClick}
-                    disabled={isSpeaking || isProcessing || isTranscribing}
+                    disabled={isSpeaking || isProcessing || isSending}
                     className={`flex-1 h-14 rounded-2xl flex items-center justify-center gap-3 font-semibold text-sm transition-all focus:outline-none select-none ${btnClass}`}
                   >
-                    {isSpeaking ? (
-                      <><Volume2 className="h-6 w-6 text-zinc-400 animate-pulse" /><span>AI Speaking...</span></>
-                    ) : isTranscribing ? (
-                      <><Sparkles className="h-6 w-6 text-primary animate-spin" /><span>Transcribing Voice...</span></>
-                    ) : isProcessing ? (
-                      <><Sparkles className="h-6 w-6 text-primary animate-spin" /><span>Processing...</span></>
-                    ) : isMuted ? (
-                      <><MicOff className="h-5 w-5 text-muted-foreground" /><span>Muted</span></>
-                    ) : isRecordingActive && volumeLevel > 8 ? (
-                      <><Mic className="h-6 w-6 text-white animate-bounce" /><span>Hearing You — Will Auto-send</span></>
-                    ) : isRecordingActive ? (
-                      <><Mic className="h-6 w-6 text-white" /><span>Recording... Speak Now</span></>
-                    ) : (
-                      <><Mic className="h-6 w-6 text-white" /><span>Speak Now</span></>
-                    )}
+                    {buttonContent}
                   </button>
 
                   <Button
@@ -778,6 +897,13 @@ export function VoiceCallModal() {
                     <Send className="h-3 w-3" />
                   </Button>
                 </form>
+
+                <div className="text-[10px] text-muted-foreground flex items-center justify-between px-1 pt-0.5 font-mono">
+                  <span className="truncate max-w-[280px]">Status: {lastSttLog}</span>
+                  <a href="/test-mic" target="_blank" rel="noreferrer" className="text-primary hover:underline shrink-0">
+                    Mic Diagnostics ↗
+                  </a>
+                </div>
               </div>
             )}
           </motion.div>

@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -76,6 +77,10 @@ app.use('/api', streamRouter);
 app.use('/api', casesRouter);
 app.use('/api', simulateRouter);
 app.use('/api', voiceRouter);
+
+app.get(['/test-mic', '/mic-test'], (_req: Request, res: Response) => {
+  res.sendFile(path.resolve(__dirname, '../../mic_test.html'));
+});
 
 app.use(errorHandler);
 

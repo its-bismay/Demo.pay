@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall, LogOut, User, Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall, LogOut, User, Eye, EyeOff, Lock, Mail, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -435,8 +435,6 @@ function ProductDetailModal() {
   );
 }
 
-import { Trash2 } from 'lucide-react';
-
 function CartDrawer() {
   const isOpen = useCartStore(state => state.cartDrawerOpen);
   const setOpen = useCartStore(state => state.setCartDrawerOpen);
@@ -482,12 +480,13 @@ function CartDrawer() {
           ) : (
             cartItems.map((item) => (
               <div key={item.product.id} className="flex gap-4 p-4 border rounded-lg bg-card">
-                <div className="w-20 h-20 rounded-md overflow-hidden bg-muted shrink-0">
+                <div className="w-20 h-20 rounded-md overflow-hidden bg-muted shrink-0 flex items-center justify-center">
                   <img
-                    src={item.product.imageUrl || item.product.image_url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80'}
-                    alt={item.product.name}
-                    className="w-full h-full object-cover"
+                    src={item.product?.imageUrl || item.product?.image_url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80'}
+                    alt={item.product?.name || 'Product'}
+                    className="w-full h-full object-cover object-center"
                     onError={(e) => {
+                      e.currentTarget.onerror = null;
                       e.currentTarget.src = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80';
                     }}
                   />
@@ -654,12 +653,13 @@ function CheckoutDrawer() {
                 <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                   {cartItems.map((item) => (
                     <div key={item.product.id} className="flex items-center gap-3 p-2.5 rounded-lg border bg-card/60">
-                      <div className="w-14 h-14 rounded-md overflow-hidden bg-muted shrink-0">
+                      <div className="w-14 h-14 rounded-md overflow-hidden bg-muted shrink-0 flex items-center justify-center">
                         <img
-                          src={item.product.imageUrl || item.product.image_url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80'}
-                          alt={item.product.name}
-                          className="w-full h-full object-cover"
+                          src={item.product?.imageUrl || item.product?.image_url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80'}
+                          alt={item.product?.name || 'Product'}
+                          className="w-full h-full object-cover object-center"
                           onError={(e) => {
+                            e.currentTarget.onerror = null;
                             e.currentTarget.src = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80';
                           }}
                         />
