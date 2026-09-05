@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Store, ShieldCheck, User, LogOut } from 'lucide-react';
+import { Home, Store, ShieldCheck, User, LogOut, Mic } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import logoImage from '@/assets/icon.png';
 import {
@@ -21,6 +21,7 @@ const items = [
   { title: 'Home', url: '/', icon: Home },
   { title: 'Store', url: '/store', icon: Store },
   { title: 'Admin', url: '/admin', icon: ShieldCheck },
+  { title: 'Voice Test', url: '/voice-test', icon: Mic },
 ];
 
 export function AppSidebar() {

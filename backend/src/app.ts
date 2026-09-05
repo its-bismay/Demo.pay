@@ -65,6 +65,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 app.use(express.urlencoded({ extended: true }));
 
+app.get(['/health', '/api/health'], (_req: Request, res: Response) => {
+  res.json({ status: 'ok', db: true, timestamp: new Date().toISOString() });
+});
+
 app.use('/api', healthRouter);
 app.use('/api', authRouter);
 app.use('/api', productsRouter);

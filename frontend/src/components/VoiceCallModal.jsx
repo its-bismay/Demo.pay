@@ -13,9 +13,8 @@ import {
   Send,
   Tag,
   Loader2,
-  Radio,
-  Activity,
   AlertCircle,
+  MessageSquare,
   ArrowRight
 } from 'lucide-react';
 import { useVoiceCallStore, useLiveFeedStore } from '@/store';
@@ -88,13 +87,14 @@ export function VoiceCallModal() {
 
   const [callDuration, setCallDuration] = useState(0);
   const [inputText, setInputText] = useState('');
+  const [showTextInput, setShowTextInput] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentDiscount, setCurrentDiscount] = useState(0);
   const [micDenied, setMicDenied] = useState(false);
   const [recordingState, setRecordingState] = useState('idle');
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [hasVoiceDetected, setHasVoiceDetected] = useState(false);
-  const [lastSttLog, setLastSttLog] = useState('Mic connected');
+  const [statusLog, setStatusLog] = useState('Connecting audio...');
 
   const ringtoneRef = useRef(null);
   const transcriptContainerRef = useRef(null);
@@ -168,15 +168,15 @@ export function VoiceCallModal() {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
-      const ctx2d = canvas.getContext('2d');
-      if (!ctx2d) {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
       const W = canvas.width;
       const H = canvas.height;
       analyser.getByteFrequencyData(data);
-      ctx2d.clearRect(0, 0, W, H);
+      ctx.clearRect(0, 0, W, H);
 
       let sum = 0;
       for (let i = 0; i < data.length; i++) sum += data[i];
@@ -184,8 +184,8 @@ export function VoiceCallModal() {
       const curVolume = Math.min(100, Math.round((avg / 128) * 100));
       setVolumeLevel(curVolume);
 
-      const n = 36;
-      const bw = 4;
+      const n = 32;
+      const bw = 5;
       const gap = Math.max(3, (W - n * bw) / (n + 1));
 
       for (let i = 0; i < n; i++) {
@@ -195,27 +195,27 @@ export function VoiceCallModal() {
 
         if (isMutedRef.current) {
           bh = 2;
-          ctx2d.fillStyle = 'rgba(239, 68, 68, 0.4)';
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
         } else if (isSpeakingRef.current) {
-          bh = Math.max(4, Math.sin(Date.now() / 110 + i * 0.4) * 10 + 12);
-          ctx2d.fillStyle = 'rgba(148, 163, 184, 0.7)';
+          bh = Math.max(5, Math.sin(Date.now() / 110 + i * 0.4) * 12 + 14);
+          ctx.fillStyle = 'rgba(148, 163, 184, 0.75)';
         } else if (recordingState === 'sending') {
-          bh = Math.max(4, Math.sin(Date.now() / 90 + i * 0.45) * 8 + 9);
-          ctx2d.fillStyle = '#f59e0b';
-        } else if (hasSpokenRef.current || curVolume > 7) {
-          bh = Math.max(5, Math.min(H - 4, (val / 255) * (H - 4)));
-          ctx2d.fillStyle = '#10b981';
+          bh = Math.max(4, Math.sin(Date.now() / 80 + i * 0.5) * 8 + 10);
+          ctx.fillStyle = '#f59e0b';
+        } else if (curVolume > 7 || hasSpokenRef.current) {
+          bh = Math.max(6, Math.min(H - 4, (val / 255) * (H - 4)));
+          ctx.fillStyle = '#10b981';
         } else {
           bh = Math.max(3, (val / 255) * (H - 8));
-          ctx2d.fillStyle = 'rgba(71, 85, 105, 0.4)';
+          ctx.fillStyle = 'rgba(71, 85, 105, 0.4)';
         }
 
         const x = gap + i * (bw + gap);
         const y = (H - bh) / 2;
-        ctx2d.beginPath();
-        if (ctx2d.roundRect) ctx2d.roundRect(x, y, bw, bh, 2);
-        else ctx2d.rect(x, y, bw, bh);
-        ctx2d.fill();
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, y, bw, bh, 2);
+        else ctx.rect(x, y, bw, bh);
+        ctx.fill();
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -225,7 +225,7 @@ export function VoiceCallModal() {
   const stopWave = () => {
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     const c = canvasRef.current;
-    if (c) { const ctx2d = c.getContext('2d'); if (ctx2d) ctx2d.clearRect(0, 0, c.width, c.height); }
+    if (c) { const ctx = c.getContext('2d'); if (ctx) ctx.clearRect(0, 0, c.width, c.height); }
   };
 
   const stopRecordingAndSend = () => {
@@ -242,7 +242,7 @@ export function VoiceCallModal() {
 
   const sendAudioToSTT = async (blob) => {
     if (!blob || blob.size < 600) {
-      setLastSttLog('Empty audio chunk');
+      setStatusLog('Mic active (waiting for speech)');
       if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
         startRecording();
       }
@@ -251,7 +251,7 @@ export function VoiceCallModal() {
 
     setRecordingState('sending');
     setListening(false);
-    setLastSttLog(`Transcribing audio (${Math.round(blob.size / 1024)} KB)...`);
+    setStatusLog(`Uploading voice (${Math.round(blob.size / 1024)} KB)...`);
 
     try {
       const form = new FormData();
@@ -265,32 +265,51 @@ export function VoiceCallModal() {
       const data = await res.json();
       if (res.ok && data.success && data.transcript?.trim()) {
         const recognized = data.transcript.trim();
-        setLastSttLog(`Heard: "${recognized}"`);
+        setStatusLog(`Heard: "${recognized}"`);
         await handleUserReply(recognized);
       } else {
-        setLastSttLog(data.error ? `STT Error: ${data.error}` : 'No speech recognized');
+        setStatusLog(data.error ? `STT: ${data.error}` : 'Ready for next response');
         if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
           startRecording();
         }
       }
     } catch (err) {
-      setLastSttLog(`Network error: ${err.message}`);
+      setStatusLog(`Network error: ${err.message}`);
       if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
         startRecording();
       }
     }
   };
 
-  const startRecording = () => {
+  const startRecording = async () => {
     if (
       isMutedRef.current ||
       callStateRef.current !== 'connected' ||
       isSpeakingRef.current ||
-      isProcessingRef.current ||
-      !micStreamRef.current
+      isProcessingRef.current
     ) return;
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') return;
+
+    if (!micStreamRef.current || micStreamRef.current.getAudioTracks().every(t => t.readyState === 'ended')) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 16000,
+            channelCount: 1,
+          },
+        });
+        micStreamRef.current = stream;
+        setupAudioAnalyser(stream);
+      } catch (e) {
+        setMicDenied(true);
+        setStatusLog('Microphone permission blocked');
+        return;
+      }
+    }
 
     if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
 
@@ -301,14 +320,12 @@ export function VoiceCallModal() {
     setHasVoiceDetected(false);
     setRecordingState('recording');
     setListening(true);
-    setLastSttLog('Listening for your voice...');
+    setStatusLog('Listening... Speak naturally');
 
     let mimeType = '';
-    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-      mimeType = 'audio/webm;codecs=opus';
-    } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-      mimeType = 'audio/webm';
-    }
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
+    else if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
+    else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
 
     try {
       const recorder = new MediaRecorder(micStreamRef.current, mimeType ? { mimeType } : {});
@@ -325,12 +342,13 @@ export function VoiceCallModal() {
         await sendAudioToSTT(blob);
       };
 
-      recorder.onerror = () => {
+      recorder.onerror = (e) => {
         isRecordingRef.current = false;
         setRecordingState('idle');
+        setStatusLog('Recorder error: ' + (e?.error?.message || 'unknown'));
       };
 
-      recorder.start(150);
+      recorder.start(200);
 
       vadIntervalRef.current = setInterval(() => {
         if (!isRecordingRef.current || !analyserRef.current || !freqDataRef.current) {
@@ -351,7 +369,7 @@ export function VoiceCallModal() {
         } else {
           if (hasSpokenRef.current) {
             silenceCountRef.current += 1;
-            if (silenceCountRef.current >= 9) {
+            if (silenceCountRef.current >= 10) {
               if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
               stopRecordingAndSend();
             }
@@ -364,7 +382,29 @@ export function VoiceCallModal() {
     } catch (err) {
       isRecordingRef.current = false;
       setRecordingState('idle');
+      setStatusLog('Mic start error: ' + err.message);
     }
+  };
+
+  const setupAudioAnalyser = (stream) => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+        audioCtxRef.current = new AudioCtx();
+      }
+      if (audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+      const source = audioCtxRef.current.createMediaStreamSource(stream);
+      const analyser = audioCtxRef.current.createAnalyser();
+      analyser.fftSize = 64;
+      analyser.smoothingTimeConstant = 0.75;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      freqDataRef.current = new Uint8Array(analyser.frequencyBinCount);
+      drawWave();
+    } catch (e) {}
   };
 
   const handleAcceptCall = async () => {
@@ -379,21 +419,7 @@ export function VoiceCallModal() {
         },
       });
       micStreamRef.current = stream;
-
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        if (ctx.state === 'suspended') await ctx.resume();
-        audioCtxRef.current = ctx;
-        const source = ctx.createMediaStreamSource(stream);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 64;
-        analyser.smoothingTimeConstant = 0.75;
-        source.connect(analyser);
-        analyserRef.current = analyser;
-        freqDataRef.current = new Uint8Array(analyser.frequencyBinCount);
-        drawWave();
-      }
+      setupAudioAnalyser(stream);
     } catch (err) {
       setMicDenied(true);
     }
@@ -473,7 +499,7 @@ export function VoiceCallModal() {
         };
         audio.onended = () => { URL.revokeObjectURL(url); onDone(); };
         audio.onerror = () => { URL.revokeObjectURL(url); onDone(); };
-        audio.play().catch(e => {
+        audio.play().catch(() => {
           onDone();
         });
         return;
@@ -490,22 +516,33 @@ export function VoiceCallModal() {
         `Namaste ${callData.customerName || 'Customer'}! Main Demo.pay recovery desk se ${agentName} baat kar ${agentGender === 'male' ? 'raha' : 'rahi'} hoon. Maine dekha aapka payment checkout par ruk gaya tha. Kya payment mein koi takleef aayi thi?`;
       setTimeout(() => speakText(greeting), 400);
     }
-    return () => {
-      if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
-      if (audioRef.current) { try { audioRef.current.pause(); } catch (e) {} audioRef.current = null; }
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      stopRecordingAndSend();
-      stopWave();
-      if (micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach(t => t.stop());
-        micStreamRef.current = null;
-      }
-      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-        try { audioCtxRef.current.close(); } catch (e) {}
-        audioCtxRef.current = null;
-      }
-    };
   }, [callState]);
+
+  const teardownCall = () => {
+    if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
+    if (audioRef.current) { try { audioRef.current.pause(); } catch (e) {} audioRef.current = null; }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    stopRecordingAndSend();
+    stopWave();
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(t => t.stop());
+      micStreamRef.current = null;
+    }
+    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+      try { audioCtxRef.current.close(); } catch (e) {}
+      audioCtxRef.current = null;
+    }
+  };
+
+  const handleEndCall = () => {
+    teardownCall();
+    endCall();
+  };
+
+  const handleCloseModal = () => {
+    teardownCall();
+    closeModal();
+  };
 
   const handleUserReply = async (userText) => {
     if (!userText?.trim()) return;
@@ -579,6 +616,7 @@ export function VoiceCallModal() {
     if (!inputText.trim()) return;
     const t = inputText;
     setInputText('');
+    setShowTextInput(false);
     handleUserReply(t);
   };
 
@@ -592,43 +630,50 @@ export function VoiceCallModal() {
   const isRecordingActive = recordingState === 'recording';
   const isSending = recordingState === 'sending';
 
-  let bannerText = 'Ready';
-  let bannerBg = 'bg-slate-800/80 text-slate-300 border-slate-700';
+  let stageColor = 'border-slate-800 bg-slate-900/50';
+  let stageTitle = 'Connecting...';
+  let stageDesc = statusLog;
 
   if (isSpeaking) {
-    bannerText = `${agentName} is speaking...`;
-    bannerBg = 'bg-zinc-800 text-zinc-300 border-zinc-700';
+    stageColor = 'border-primary/40 bg-primary/5';
+    stageTitle = `${agentName} is speaking...`;
+    stageDesc = 'Listen to the recovery assistant';
   } else if (isProcessing) {
-    bannerText = `${agentName} is thinking...`;
-    bannerBg = 'bg-primary/15 text-primary border-primary/30';
+    stageColor = 'border-primary/50 bg-primary/10';
+    stageTitle = `${agentName} is thinking...`;
+    stageDesc = 'Generating AI response';
   } else if (isSending) {
-    bannerText = 'Sending your voice to AI...';
-    bannerBg = 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse';
+    stageColor = 'border-amber-500/50 bg-amber-500/10 animate-pulse';
+    stageTitle = 'Sending your voice to AI...';
+    stageDesc = 'Transcribing with Sarvam saaras:v3';
   } else if (isMuted) {
-    bannerText = 'Microphone Muted';
-    bannerBg = 'bg-destructive/15 text-destructive border-destructive/30';
+    stageColor = 'border-destructive/40 bg-destructive/5';
+    stageTitle = 'Microphone Muted';
+    stageDesc = 'Click unmute to talk';
   } else if (isRecordingActive && hasVoiceDetected) {
-    bannerText = `Voice Detected (${volumeLevel}%) — listening to you...`;
-    bannerBg = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 animate-pulse';
+    stageColor = 'border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/20';
+    stageTitle = `Voice Detected! (${volumeLevel}%)`;
+    stageDesc = 'Listening... pause to send, or click Send Now';
   } else if (isRecordingActive) {
-    bannerText = 'No voice detected — speak into your microphone';
-    bannerBg = 'bg-slate-800/90 text-slate-300 border-slate-700';
+    stageColor = 'border-slate-700 bg-slate-900/80';
+    stageTitle = 'Listening... Speak now';
+    stageDesc = `No voice detected yet (Level: ${volumeLevel}%)`;
   }
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
 
         {callState === 'ringing' && (
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-            className="w-full max-w-sm rounded-2xl border bg-card/95 shadow-2xl p-6 text-center space-y-6 relative overflow-hidden backdrop-blur-md"
+            className="w-full max-w-sm rounded-3xl border bg-card/95 shadow-2xl p-6 text-center space-y-6 relative overflow-hidden backdrop-blur-md"
           >
             <div className="absolute -top-12 -left-12 w-32 h-32 bg-primary/20 rounded-full blur-2xl pointer-events-none" />
             <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-primary/20 rounded-full blur-2xl pointer-events-none" />
             <div className="space-y-1">
               <Badge variant="outline" className="text-xs px-3 py-1 font-semibold uppercase tracking-wider text-primary border-primary/40 bg-primary/10 animate-pulse">
-                Incoming AI Voice Call
+                Incoming Recovery Call
               </Badge>
               <h3 className="text-xl font-bold mt-2">Demo.pay Recovery AI</h3>
               <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
@@ -642,7 +687,7 @@ export function VoiceCallModal() {
                 <PhoneCall className="h-9 w-9 text-white animate-bounce" />
               </div>
             </div>
-            <div className="bg-muted/40 rounded-lg p-3 text-xs space-y-1 border">
+            <div className="bg-muted/40 rounded-xl p-3 text-xs space-y-1 border">
               <div className="flex justify-between text-muted-foreground">
                 <span>Order</span>
                 <span className="font-semibold text-foreground">{callData?.productName || 'Cart Items'}</span>
@@ -673,24 +718,26 @@ export function VoiceCallModal() {
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="w-full max-w-lg rounded-2xl border bg-card shadow-2xl flex flex-col overflow-hidden"
+            className="w-full max-w-md rounded-3xl border bg-card/95 shadow-2xl flex flex-col overflow-hidden backdrop-blur-xl"
             style={{ height: '620px', maxHeight: '92vh' }}
           >
-            <div className="flex-none h-14 px-4 border-b flex items-center justify-between bg-muted/30">
+            <div className="flex-none px-5 py-3 border-b flex items-center justify-between bg-muted/20">
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm ${isMale ? 'bg-sky-500/20 text-sky-500' : 'bg-primary/20 text-primary'}`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-white ${isMale ? 'bg-sky-600' : 'bg-primary'} shadow-md`}>
                     {agentName[0]}
                   </div>
-                  {isSpeaking && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-card animate-pulse" />}
+                  {isSpeaking && (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-card animate-pulse" />
+                  )}
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm">{agentName}</span>
-                    <Badge variant="outline" className="text-[10px] text-primary border-primary/30">{callData?.languageMode || 'Hinglish'}</Badge>
+                    <span className="font-bold text-sm">{agentName}</span>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{callData?.languageMode || 'Hinglish'}</Badge>
                     {currentDiscount > 0 && (
-                      <Badge className="bg-emerald-600 text-white text-[10px] gap-1 py-0 h-4">
-                        <Tag className="h-2.5 w-2.5" />{currentDiscount}% Off
+                      <Badge className="bg-emerald-600 text-white text-[10px] py-0 h-4">
+                        <Tag className="h-2 w-2 mr-1" />{currentDiscount}% Off
                       </Badge>
                     )}
                   </div>
@@ -700,57 +747,97 @@ export function VoiceCallModal() {
                   </div>
                 </div>
               </div>
+
               {callState === 'connected' ? (
-                <Button size="sm" variant="destructive" className="rounded-full px-3 h-8 gap-1.5"
-                  onClick={() => { stopRecordingAndSend(); endCall(); }}>
+                <Button size="sm" variant="destructive" className="rounded-full px-3.5 h-8 gap-1 text-xs" onClick={handleEndCall}>
                   <PhoneOff className="h-3.5 w-3.5" />
-                  <span className="text-xs">End Call</span>
+                  <span>End</span>
                 </Button>
               ) : (
-                <Button size="sm" variant="secondary" className="rounded-full px-4 h-8 text-xs" onClick={closeModal}>
+                <Button size="sm" variant="secondary" className="rounded-full px-4 h-8 text-xs" onClick={handleCloseModal}>
                   Close
                 </Button>
               )}
             </div>
 
             {micDenied && (
-              <div className="flex-none px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-600 dark:text-amber-400 text-center flex items-center justify-center gap-2">
-                <AlertCircle className="h-4 w-4" />
-                <span>Microphone access blocked — please allow microphone in browser settings.</span>
+              <div className="flex-none px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-500 text-center flex items-center justify-center gap-1.5">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>Microphone access blocked - please allow microphone in your browser settings.</span>
               </div>
             )}
 
             {promiseResult && (
-              <div className="flex-none bg-emerald-500/10 border-b border-emerald-500/30 px-4 py-2 flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
+              <div className="flex-none bg-emerald-500/10 border-b border-emerald-500/30 px-4 py-2 flex items-center gap-2 text-xs text-emerald-500">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 <span className="font-semibold">Promise Recorded:</span>
-                <span>{promiseResult.label}. Outreach paused.</span>
+                <span>{promiseResult.label}.</span>
               </div>
             )}
 
-            <div ref={transcriptContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-background/50">
+            <div className="flex-none p-4">
+              <div className={`rounded-2xl border p-4 transition-all duration-300 ${stageColor}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    {isSpeaking ? (
+                      <Volume2 className="h-4 w-4 text-primary animate-pulse" />
+                    ) : isSending ? (
+                      <Loader2 className="h-4 w-4 text-amber-400 animate-spin" />
+                    ) : isProcessing ? (
+                      <Sparkles className="h-4 w-4 text-primary animate-spin" />
+                    ) : hasVoiceDetected ? (
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-slate-400" />
+                    )}
+                    <span className="font-semibold text-xs tracking-wide">{stageTitle}</span>
+                  </div>
+
+                  {isRecordingActive && hasVoiceDetected && (
+                    <button
+                      type="button"
+                      onClick={stopRecordingAndSend}
+                      className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 shadow-md animate-bounce"
+                    >
+                      Send Now <ArrowRight className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="h-8 w-full flex items-center justify-center overflow-hidden">
+                  <canvas ref={canvasRef} width={380} height={28} className="w-full h-7 block" />
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+                  <span className="truncate max-w-[260px]">{stageDesc}</span>
+                  <span className="font-mono text-[10px]">{isMuted ? 'MUTED' : `${volumeLevel}%`}</span>
+                </div>
+              </div>
+            </div>
+
+            <div ref={transcriptContainerRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-2 space-y-2.5 bg-background/30">
               {transcript.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
-                  <Sparkles className="h-8 w-8 opacity-30" />
-                  <p className="text-xs">Call connected. {agentName} will speak first...</p>
+                <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-1.5 opacity-60">
+                  <Sparkles className="h-6 w-6" />
+                  <p className="text-xs">{agentName} will start the conversation...</p>
                 </div>
               )}
               {transcript.map((msg) => (
                 <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs shadow-sm ${
+                  <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-xs shadow-sm ${
                     msg.sender === 'user'
                       ? 'bg-primary text-primary-foreground rounded-tr-none'
-                      : 'bg-muted/80 text-foreground border rounded-tl-none'
+                      : 'bg-muted/90 text-foreground border rounded-tl-none'
                   }`}>
                     <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                   </div>
-                  <span className="text-[10px] text-muted-foreground mt-1 px-1">
+                  <span className="text-[10px] text-muted-foreground mt-0.5 px-1">
                     {msg.sender === 'user' ? 'You' : agentName} · {msg.time}
                   </span>
                 </div>
               ))}
               {isProcessing && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground italic">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground italic px-1">
                   <Sparkles className="h-3 w-3 animate-spin text-primary" />
                   <span>{agentName} is thinking...</span>
                 </div>
@@ -758,43 +845,7 @@ export function VoiceCallModal() {
             </div>
 
             {callState === 'connected' && (
-              <div className="flex-none border-t bg-card p-3 space-y-3">
-                <div className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center justify-between transition-colors ${bannerBg}`}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    {isSpeaking ? (
-                      <Volume2 className="h-4 w-4 text-zinc-300 animate-pulse shrink-0" />
-                    ) : isSending ? (
-                      <Loader2 className="h-4 w-4 text-amber-400 animate-spin shrink-0" />
-                    ) : isProcessing ? (
-                      <Sparkles className="h-4 w-4 text-primary animate-spin shrink-0" />
-                    ) : hasVoiceDetected ? (
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
-                    )}
-                    <span className="truncate">{bannerText}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isRecordingActive && hasVoiceDetected && (
-                      <button
-                        type="button"
-                        onClick={stopRecordingAndSend}
-                        className="px-2 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 shadow"
-                      >
-                        Send Now <ArrowRight className="h-3 w-3" />
-                      </button>
-                    )}
-                    <span className="text-[10px] font-mono opacity-75">
-                      {isMuted ? 'Muted' : `${volumeLevel}%`}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="h-9 w-full bg-muted/40 rounded-lg border flex items-center justify-center px-2 overflow-hidden">
-                  <canvas ref={canvasRef} width={420} height={32} className="w-full h-8 block" />
-                </div>
-
+              <div className="flex-none border-t bg-card/60 p-3 space-y-2.5">
                 {!promiseResult && (
                   <div className="flex flex-wrap gap-1.5">
                     {[
@@ -806,7 +857,7 @@ export function VoiceCallModal() {
                         key={label}
                         type="button"
                         onClick={() => handleUserReply(reply)}
-                        className="text-[11px] h-6 px-2.5 rounded-full border bg-muted/50 hover:border-primary hover:bg-primary/5 transition-colors text-muted-foreground hover:text-foreground"
+                        className="text-[11px] h-6 px-2.5 rounded-full border bg-muted/40 hover:border-primary hover:bg-primary/5 transition-colors text-muted-foreground hover:text-foreground"
                       >
                         {label}
                       </button>
@@ -814,48 +865,58 @@ export function VoiceCallModal() {
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 pt-1">
-                  <Button
-                    type="button"
-                    variant={isMuted ? 'destructive' : 'outline'}
-                    size="icon"
-                    onClick={handleToggleMute}
-                    className={`h-10 w-10 rounded-full shrink-0 ${
-                      isMuted ? 'bg-destructive text-white shadow' : 'border-border text-foreground hover:bg-muted'
-                    }`}
-                    title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
-                  >
-                    {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4 text-emerald-500" />}
-                  </Button>
-
-                  <form onSubmit={handleManualSubmit} className="flex-1 flex gap-2">
+                {showTextInput ? (
+                  <form onSubmit={handleManualSubmit} className="flex gap-2">
                     <Input
                       value={inputText}
                       onChange={e => setInputText(e.target.value)}
-                      placeholder="Type a message or speak naturally..."
-                      className="text-xs h-10 bg-background"
+                      placeholder="Type your reply here..."
+                      className="text-xs h-9 bg-background"
+                      autoFocus
                     />
-                    <Button type="submit" size="sm" className="h-10 px-3.5 shrink-0" disabled={!inputText.trim() || isProcessing}>
+                    <Button type="submit" size="sm" className="h-9 px-3 shrink-0" disabled={!inputText.trim() || isProcessing}>
                       <Send className="h-3.5 w-3.5" />
                     </Button>
+                    <Button type="button" variant="ghost" size="sm" className="h-9 px-2 text-xs" onClick={() => setShowTextInput(false)}>
+                      Cancel
+                    </Button>
                   </form>
+                ) : (
+                  <div className="flex items-center justify-between gap-4 pt-1">
+                    <Button
+                      type="button"
+                      variant={isMuted ? 'destructive' : 'outline'}
+                      size="icon"
+                      onClick={handleToggleMute}
+                      className={`h-12 w-12 rounded-full shadow-sm ${
+                        isMuted ? 'bg-destructive text-white' : 'hover:bg-muted text-foreground'
+                      }`}
+                      title={isMuted ? 'Unmute' : 'Mute'}
+                    >
+                      {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5 text-emerald-500" />}
+                    </Button>
 
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="icon"
-                    onClick={() => { stopRecordingAndSend(); endCall(); }}
-                    className="h-10 w-10 rounded-full bg-red-600 hover:bg-red-700 text-white shrink-0 shadow"
-                    title="End Call"
-                  >
-                    <PhoneOff className="h-4 w-4" />
-                  </Button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowTextInput(true)}
+                      className="flex-1 h-12 rounded-full border border-dashed border-border hover:border-primary/60 bg-muted/30 hover:bg-muted/60 text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-2 px-4 transition-all"
+                    >
+                      <MessageSquare className="h-4 w-4 text-primary" />
+                      <span>Type reply instead</span>
+                    </button>
 
-                <div className="text-[10px] text-muted-foreground flex items-center justify-between px-1 font-mono">
-                  <span className="truncate max-w-[340px]">Audio: {lastSttLog}</span>
-                  <span className="opacity-60">{isRecordingActive ? 'MIC ON' : isSpeaking ? 'TTS ON' : 'IDLE'}</span>
-                </div>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      onClick={handleEndCall}
+                      className="h-12 w-12 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-md"
+                      title="End Call"
+                    >
+                      <PhoneOff className="h-5 w-5" />
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </motion.div>

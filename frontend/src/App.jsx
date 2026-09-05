@@ -10,6 +10,7 @@ import { VoiceCallModal } from '@/components/VoiceCallModal';
 import Home from './pages/Home';
 import Store from './pages/Store';
 import Admin from './pages/Admin';
+import VoiceTest from './pages/VoiceTest';
 import { useCartStore, useSessionStore } from './store';
 
 const Layout = () => {
@@ -63,6 +64,8 @@ const App = () => {
             <Route index element={<Home />} />
             <Route path="store" element={<Store />} />
             <Route path="admin" element={<Admin />} />
+            <Route path="voice-test" element={<VoiceTest />} />
+            <Route path="test-mic" element={<VoiceTest />} />
           </Route>
         </Routes>
       </BrowserRouter>
