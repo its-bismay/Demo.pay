@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall, LogOut, User } from 'lucide-react';
+import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall, LogOut, User, Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -18,33 +18,74 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Separator } from '@/components/ui/separator';
 
+const signupSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters'),
+  email: z.string().email('Please enter a valid email address'),
+  phone: z.string().min(8, 'Phone number is required (at least 8 digits)'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
 const loginSchema = z.object({
-  name: z.string().min(2, 'Name is too short'),
-  email: z.string().email('Invalid email'),
-  phone: z.string().optional(),
+  email: z.string().email('Please enter a valid email address'),
+  password: z.string().min(1, 'Password is required'),
 });
 
 function StoreAuthGate({ onLogin }) {
-  const { register, handleSubmit, formState: { errors } } = useForm({
-    resolver: zodResolver(loginSchema),
-  });
-  const { login } = useSessionStore();
+  const [authMode, setAuthMode] = useState('signup');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { login } = useSessionStore();
 
-  const onSubmit = async (data) => {
+  const signupForm = useForm({
+    resolver: zodResolver(signupSchema),
+    defaultValues: { name: '', email: '', phone: '', password: '' },
+  });
+
+  const loginForm = useForm({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: '', password: '' },
+  });
+
+  const handleSignup = async (data) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/customer/session`, {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+      const res = await fetch(`${baseUrl}/api/auth/customer/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error('Failed to create session');
-      const { customer, token } = await res.json();
-      login(customer, token);
-      if (onLogin) onLogin(customer);
+      const result = await res.json();
+      if (!res.ok) {
+        throw new Error(result.message || 'Failed to create account');
+      }
+      login(result.customer, result.token);
+      if (onLogin) onLogin(result.customer);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async (data) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+      const res = await fetch(`${baseUrl}/api/auth/customer/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        throw new Error(result.message || 'Invalid email or password');
+      }
+      login(result.customer, result.token);
+      if (onLogin) onLogin(result.customer);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -53,45 +94,175 @@ function StoreAuthGate({ onLogin }) {
   };
 
   return (
-    <div className="flex min-h-[80vh] items-center justify-center p-4">
-      <Card className="w-full max-w-md shadow-lg">
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-2">
+    <div className="flex min-h-[85vh] items-center justify-center p-4">
+      <Card className="w-full max-w-md shadow-xl border-border/60">
+        <CardHeader className="text-center pb-4">
+          <div className="flex justify-center mb-3">
             <img src={logoImage} alt="Demo.pay" className="h-10 object-contain" />
           </div>
-          <CardTitle>Welcome to the Store</CardTitle>
-          <CardDescription>
-            Enter your details to access the demo store and test autonomous revenue recovery.
+          <CardTitle className="text-2xl font-bold tracking-tight">
+            {authMode === 'signup' ? 'Create Customer Account' : 'Welcome Back'}
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {authMode === 'signup'
+              ? 'Sign up with email and phone to browse products and test autonomous recovery'
+              : 'Log in with your registered email and password to resume shopping'}
           </CardDescription>
+          <div className="mt-4 grid grid-cols-2 p-1 bg-muted rounded-lg text-sm font-medium">
+            <button
+              type="button"
+              className={`py-1.5 rounded-md transition-all ${authMode === 'signup' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              onClick={() => { setAuthMode('signup'); setError(null); }}
+            >
+              Sign Up
+            </button>
+            <button
+              type="button"
+              className={`py-1.5 rounded-md transition-all ${authMode === 'login' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              onClick={() => { setAuthMode('login'); setError(null); }}
+            >
+              Log In
+            </button>
+          </div>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Full Name</Label>
-              <Input id="name" placeholder="John Doe" {...register('name')} />
-              {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+        <CardContent className="pt-2">
+          {error && (
+            <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-2 text-destructive text-xs">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
+          )}
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="john@example.com" {...register('email')} />
-              {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="phone">Phone Number</Label>
-                <span className="text-[11px] text-muted-foreground font-normal">Optional (WhatsApp recovery)</span>
+          {authMode === 'signup' ? (
+            <form onSubmit={signupForm.handleSubmit(handleSignup)} className="space-y-3.5">
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-name" className="text-xs">Full Name</Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input id="signup-name" placeholder="Aman Sharma" className="pl-9 text-xs h-9" {...signupForm.register('name')} />
+                </div>
+                {signupForm.formState.errors.name && (
+                  <p className="text-[11px] text-destructive">{signupForm.formState.errors.name.message}</p>
+                )}
               </div>
-              <Input id="phone" placeholder="+91 98765 43210" {...register('phone')} />
-            </div>
 
-            {error && <p className="text-sm text-destructive text-center">{error}</p>}
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-email" className="text-xs">Email Address</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input id="signup-email" type="email" placeholder="aman@example.com" className="pl-9 text-xs h-9" {...signupForm.register('email')} />
+                </div>
+                {signupForm.formState.errors.email && (
+                  <p className="text-[11px] text-destructive">{signupForm.formState.errors.email.message}</p>
+                )}
+              </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Enter Store'}
-            </Button>
-          </form>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="signup-phone" className="text-xs">Phone Number</Label>
+                  <span className="text-[10px] text-primary font-medium">Required (Recovery Calls & SMS)</span>
+                </div>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input id="signup-phone" placeholder="+91 98765 43210" className="pl-9 text-xs h-9" {...signupForm.register('phone')} />
+                </div>
+                {signupForm.formState.errors.phone && (
+                  <p className="text-[11px] text-destructive">{signupForm.formState.errors.phone.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-password" className="text-xs">Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    id="signup-password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="At least 6 characters"
+                    className="pl-9 pr-9 text-xs h-9"
+                    {...signupForm.register('password')}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                {signupForm.formState.errors.password && (
+                  <p className="text-[11px] text-destructive">{signupForm.formState.errors.password.message}</p>
+                )}
+              </div>
+
+              <Button type="submit" className="w-full text-xs h-9 mt-2" disabled={loading}>
+                {loading ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : 'Create Account & Enter Store'}
+              </Button>
+
+              <p className="text-center text-xs text-muted-foreground pt-1">
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  className="text-primary font-medium hover:underline"
+                  onClick={() => { setAuthMode('login'); setError(null); }}
+                >
+                  Log in here
+                </button>
+              </p>
+            </form>
+          ) : (
+            <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-3.5">
+              <div className="space-y-1.5">
+                <Label htmlFor="login-email" className="text-xs">Email Address</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input id="login-email" type="email" placeholder="aman@example.com" className="pl-9 text-xs h-9" {...loginForm.register('email')} />
+                </div>
+                {loginForm.formState.errors.email && (
+                  <p className="text-[11px] text-destructive">{loginForm.formState.errors.email.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="login-password" className="text-xs">Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    id="login-password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Enter your password"
+                    className="pl-9 pr-9 text-xs h-9"
+                    {...loginForm.register('password')}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                {loginForm.formState.errors.password && (
+                  <p className="text-[11px] text-destructive">{loginForm.formState.errors.password.message}</p>
+                )}
+              </div>
+
+              <Button type="submit" className="w-full text-xs h-9 mt-2" disabled={loading}>
+                {loading ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : 'Log In & Enter Store'}
+              </Button>
+
+              <p className="text-center text-xs text-muted-foreground pt-1">
+                Don't have an account yet?{' '}
+                <button
+                  type="button"
+                  className="text-primary font-medium hover:underline"
+                  onClick={() => { setAuthMode('signup'); setError(null); }}
+                >
+                  Sign up here
+                </button>
+              </p>
+            </form>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -175,11 +346,15 @@ function ProductGrid() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredProducts.map((product) => (
           <Card key={product.id} className="overflow-hidden cursor-pointer hover:border-primary/50 transition-colors group" onClick={() => setSelectedProduct(product)}>
-            <div className="aspect-[4/3] overflow-hidden bg-muted">
+            <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted/30 flex items-center justify-center">
               <img
-                src={product.image_url}
+                src={product.imageUrl || product.image_url}
                 alt={product.name}
-                className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
+                onError={(e) => {
+                  e.currentTarget.src = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80';
+                }}
+                loading="lazy"
               />
             </div>
             <CardHeader className="p-4 pb-2">
@@ -217,8 +392,15 @@ function ProductDetailModal() {
           <DialogTitle>{selectedProduct.name}</DialogTitle>
           <DialogDescription>Product details</DialogDescription>
         </DialogHeader>
-        <div className="relative aspect-video w-full bg-muted">
-          <img src={selectedProduct.image_url} alt={selectedProduct.name} className="w-full h-full object-cover" />
+        <div className="relative aspect-video w-full overflow-hidden bg-muted/30 flex items-center justify-center">
+          <img
+            src={selectedProduct.imageUrl || selectedProduct.image_url}
+            alt={selectedProduct.name}
+            className="w-full h-full object-cover object-center"
+            onError={(e) => {
+              e.currentTarget.src = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80';
+            }}
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-background/90 to-transparent pointer-events-none" />
           <div className="absolute bottom-4 left-4 right-4 text-foreground">
             <Badge className="mb-2 bg-primary text-primary-foreground">{selectedProduct.category}</Badge>

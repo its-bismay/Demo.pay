@@ -11,7 +11,7 @@ const startServer = async (): Promise<void> => {
     await db.execute(sql`SELECT 1`);
     logger.info('✅ Database connected');
 
-    const server = app.listen(Number(env.PORT), () => {
+    const server = app.listen(Number(env.PORT), '0.0.0.0', () => {
       logger.info(`🚀 Server running on http://localhost:${env.PORT}`);
     });
 

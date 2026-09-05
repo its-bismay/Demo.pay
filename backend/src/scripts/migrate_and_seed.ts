@@ -1,10 +1,29 @@
-import { db } from './index';
-import { merchants, policies, systemFlags, products } from './schema';
+import { db } from '../db';
+import { sql } from 'drizzle-orm';
+import { merchants, policies, systemFlags, products } from '../db/schema';
 import { env } from '../env';
 
-async function seed() {
-  console.log('Seeding...');
+async function migrateAndSeed() {
+  console.log('Running database schema updates...');
 
+  await db.execute(sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS password_hash text;`);
+
+  console.log('Purging previous test records...');
+  await db.execute(sql`DELETE FROM agent_logs;`);
+  await db.execute(sql`DELETE FROM recovery_actions;`);
+  await db.execute(sql`DELETE FROM agent_instances;`);
+  await db.execute(sql`DELETE FROM payment_promises;`);
+  await db.execute(sql`DELETE FROM recovery_cases;`);
+  await db.execute(sql`DELETE FROM order_items;`);
+  await db.execute(sql`DELETE FROM orders;`);
+  await db.execute(sql`DELETE FROM cart_sessions;`);
+  await db.execute(sql`DELETE FROM contact_log;`);
+  await db.execute(sql`DELETE FROM customers;`);
+  await db.execute(sql`DELETE FROM products;`);
+
+  await db.execute(sql`ALTER TABLE customers ALTER COLUMN phone SET NOT NULL;`);
+
+  console.log('Seeding merchant and configuration...');
   await db.insert(merchants).values({
     id: env.MERCHANT_ID,
     name: 'Acme Gear',
@@ -21,7 +40,8 @@ async function seed() {
     value: false,
   }).onConflictDoNothing();
 
-  await db.insert(products).values([
+  console.log('Seeding updated product catalog...');
+  const newProducts = [
     {
       merchantId: env.MERCHANT_ID,
       name: 'Chef Artisanal Kitchen Accessories Set',
@@ -94,10 +114,15 @@ async function seed() {
       discountEligible: true,
       maxDiscountOverridePct: 15,
     },
-  ]).onConflictDoNothing();
+  ];
 
-  console.log('✅ Seed complete');
+  await db.insert(products).values(newProducts);
+
+  console.log('✅ Database migration and catalog re-seed completed successfully!');
   process.exit(0);
 }
 
-seed().catch(console.error);
+migrateAndSeed().catch((err) => {
+  console.error('Migration failed:', err);
+  process.exit(1);
+});

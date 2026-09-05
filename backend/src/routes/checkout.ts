@@ -9,6 +9,7 @@ import { checkoutOrderSchema, simulateSchema, abandonCartSchema } from '../schem
 import { createRazorpayOrder } from '../services/razorpay';
 import { webhookIngestionQueue } from '../config/queues';
 import { processWebhookIngestion } from '../workers/webhookIngestion.worker';
+import { hashPassword } from '../lib/password';
 import { env } from '../env';
 
 const router = Router();
@@ -224,6 +225,7 @@ router.post(
             name: 'Anonymous Shopper',
             email: 'anonymous@example.com',
             phone: '+919999999999',
+            passwordHash: hashPassword('anon1234'),
           })
           .returning();
         customerId = newCustomer.id;
