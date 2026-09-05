@@ -473,7 +473,7 @@ export function VoiceCallModal() {
       }, 200);
     };
 
-    fallbackTimerRef.current = setTimeout(onDone, 12000);
+    fallbackTimerRef.current = setTimeout(onDone, 25000);
 
     try {
       const baseUrl = getBaseUrl();
@@ -562,7 +562,7 @@ export function VoiceCallModal() {
           caseId: callData?.caseId,
           orderId: callData?.orderId,
           userSpeech: userText,
-          conversationHistory: transcript,
+          conversationHistory: [...transcript, { sender: 'user', text: userText }],
           currentDiscount,
         }),
       });
@@ -661,12 +661,15 @@ export function VoiceCallModal() {
   }
 
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
-
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
+      <AnimatePresence mode="wait">
         {callState === 'ringing' && (
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+            key="ringing-call-card"
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            transition={{ duration: 0.15 }}
             className="w-full max-w-sm rounded-3xl border bg-card/95 shadow-2xl p-6 text-center space-y-6 relative overflow-hidden backdrop-blur-md"
           >
             <div className="absolute -top-12 -left-12 w-32 h-32 bg-primary/20 rounded-full blur-2xl pointer-events-none" />
@@ -716,7 +719,10 @@ export function VoiceCallModal() {
 
         {(callState === 'connected' || callState === 'ended') && (
           <motion.div
-            initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+            key="connected-call-card"
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="w-full max-w-md rounded-3xl border bg-card/95 shadow-2xl flex flex-col overflow-hidden backdrop-blur-xl"
             style={{ height: '620px', maxHeight: '92vh' }}
@@ -921,7 +927,7 @@ export function VoiceCallModal() {
             )}
           </motion.div>
         )}
-      </div>
-    </AnimatePresence>
+      </AnimatePresence>
+    </div>
   );
 }

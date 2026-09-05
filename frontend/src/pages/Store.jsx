@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall, LogOut, User, Eye, EyeOff, Lock, Mail, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -540,11 +540,20 @@ function CheckoutDrawer() {
   const [paymentMethod, setPaymentMethod] = useState('upi');
   const [simulatingId, setSimulatingId] = useState(null);
   const [simulatedAction, setSimulatedAction] = useState(null);
+  const autoCallTimerRef = useRef(null);
 
   const cartItems = useCartStore(state => state.cartItems);
   const cartTotal = cartItems.reduce((acc, item) => acc + (Math.round(item.product.priceInPaise / 100) * item.quantity), 0);
 
-  // Abandon timer
+  useEffect(() => {
+    return () => {
+      if (autoCallTimerRef.current) {
+        clearTimeout(autoCallTimerRef.current);
+        autoCallTimerRef.current = null;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     let timer;
     if (isOpen && !simulatingId && !simulatedAction) {
@@ -559,6 +568,15 @@ function CheckoutDrawer() {
   const triggerCall = useVoiceCallStore(state => state.triggerCall);
 
   const startVoiceCall = async (targetOrderId) => {
+    if (autoCallTimerRef.current) {
+      clearTimeout(autoCallTimerRef.current);
+      autoCallTimerRef.current = null;
+    }
+    setSimulatedAction(null);
+    const cur = useVoiceCallStore.getState();
+    if (cur.isOpen && (cur.callState === 'connected' || cur.callState === 'ringing')) {
+      return;
+    }
     const oid = targetOrderId || useCartStore.getState().currentOrderId;
     try {
       if (oid) {
@@ -617,9 +635,14 @@ function CheckoutDrawer() {
       });
       if (id !== 'success') {
         updateKpis({ atRisk: cartTotal, activeInterventions: 1 });
-        // Auto-call recovery agent in 3 seconds
-        setTimeout(() => {
-          startVoiceCall(orderId);
+        if (autoCallTimerRef.current) {
+          clearTimeout(autoCallTimerRef.current);
+        }
+        autoCallTimerRef.current = setTimeout(() => {
+          const cur = useVoiceCallStore.getState();
+          if (!cur.isOpen || cur.callState === 'idle') {
+            startVoiceCall(orderId);
+          }
         }, 3000);
       }
     } catch (e) {
@@ -767,6 +790,10 @@ function CheckoutDrawer() {
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2 text-xs"
                     onClick={() => {
                       const oid = useCartStore.getState().currentOrderId;
+                      if (autoCallTimerRef.current) {
+                        clearTimeout(autoCallTimerRef.current);
+                        autoCallTimerRef.current = null;
+                      }
                       closeConfirmation();
                       startVoiceCall(oid);
                     }}

@@ -81,9 +81,9 @@ export const usePolicyStore = create((set) => ({
     set((state) => ({ policy: { ...state.policy, ...newPolicy } })),
 }));
 
-export const useVoiceCallStore = create((set) => ({
+export const useVoiceCallStore = create((set, get) => ({
   isOpen: false,
-  callState: 'idle', // 'idle' | 'ringing' | 'connected' | 'ended'
+  callState: 'idle',
   isMuted: false,
   isSpeaking: false,
   isListening: false,
@@ -91,7 +91,11 @@ export const useVoiceCallStore = create((set) => ({
   transcript: [],
   promiseResult: null,
 
-  triggerCall: (data) =>
+  triggerCall: (data) => {
+    const cur = get();
+    if (cur.isOpen && (cur.callState === 'connected' || cur.callState === 'ringing')) {
+      return;
+    }
     set({
       isOpen: true,
       callState: 'ringing',
@@ -101,7 +105,8 @@ export const useVoiceCallStore = create((set) => ({
       callData: data,
       transcript: [],
       promiseResult: null,
-    }),
+    });
+  },
 
   acceptCall: () =>
     set({
