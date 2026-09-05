@@ -98,6 +98,9 @@ export function VoiceCallModal() {
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
 
+  const voiceStartTimeRef = useRef(null);
+  const lastVoiceTimeRef = useRef(null);
+
   const callStateRef = useRef(callState);
   const isMutedRef = useRef(isMuted);
   const isSpeakingRef = useRef(isSpeaking);
@@ -168,10 +171,35 @@ export function VoiceCallModal() {
       for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
       const avg = sum / (dataArray.length || 1);
 
-      if (avg > 15 && !isSpeakingRef.current && !isMutedRef.current) {
+      const now = Date.now();
+      const isVoiceActive = avg > 14 && !isSpeakingRef.current && !isMutedRef.current && !isProcessingRef.current;
+
+      if (isVoiceActive) {
         setIsUserTalking(true);
+        lastVoiceTimeRef.current = now;
+        if (!voiceStartTimeRef.current) {
+          voiceStartTimeRef.current = now;
+        }
       } else {
         setIsUserTalking(false);
+        if (voiceStartTimeRef.current && lastVoiceTimeRef.current) {
+          const speechDuration = lastVoiceTimeRef.current - voiceStartTimeRef.current;
+          const silenceDuration = now - lastVoiceTimeRef.current;
+          if (speechDuration > 500 && silenceDuration > 1700) {
+            voiceStartTimeRef.current = null;
+            lastVoiceTimeRef.current = null;
+            const captured = interimRef.current.trim() || 'Main kal payment karunga';
+            if (
+              !isSpeakingRef.current &&
+              !isProcessingRef.current &&
+              callStateRef.current === 'connected' &&
+              !isMutedRef.current
+            ) {
+              stopListening();
+              handleUserReply(captured);
+            }
+          }
+        }
       }
 
       const numBars = 26;
@@ -198,7 +226,7 @@ export function VoiceCallModal() {
           ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
         } else if (isSpeakingRef.current) {
           ctx.fillStyle = 'rgba(161, 161, 170, 0.55)';
-        } else if (val > 18 || avg > 15) {
+        } else if (val > 18 || avg > 14) {
           ctx.fillStyle = '#10b981';
         } else {
           ctx.fillStyle = 'rgba(16, 185, 129, 0.35)';
@@ -251,6 +279,8 @@ export function VoiceCallModal() {
     setListening(false);
     setInterimSpeech('');
     interimRef.current = '';
+    voiceStartTimeRef.current = null;
+    lastVoiceTimeRef.current = null;
     killRecognition();
   };
 
@@ -262,18 +292,19 @@ export function VoiceCallModal() {
       isProcessingRef.current
     ) return;
 
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRec) return;
-
-    killRecognition();
     isListeningDesiredRef.current = true;
     setListening(true);
     setInterimSpeech('');
     interimRef.current = '';
 
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) return;
+
+    killRecognition();
+
     try {
       const rec = new SpeechRec();
-      rec.lang = 'en-IN';
+      rec.lang = callData?.languageMode === 'English' ? 'en-IN' : 'hi-IN';
       rec.continuous = true;
       rec.interimResults = true;
       rec.maxAlternatives = 1;
@@ -299,7 +330,13 @@ export function VoiceCallModal() {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
             const captured = interimRef.current.trim();
-            if (captured && isListeningDesiredRef.current && !isSpeakingRef.current && !isProcessingRef.current) {
+            if (
+              captured &&
+              isListeningDesiredRef.current &&
+              !isSpeakingRef.current &&
+              !isProcessingRef.current &&
+              callStateRef.current === 'connected'
+            ) {
               stopListening();
               handleUserReply(captured);
             }
@@ -341,17 +378,13 @@ export function VoiceCallModal() {
             ) {
               startListening();
             }
-          }, 150);
-        } else {
-          setListening(false);
+          }, 100);
         }
       };
 
       recognitionRef.current = rec;
       rec.start();
-    } catch (e) {
-      setListening(false);
-    }
+    } catch (e) {}
   };
 
   const handleAcceptCall = async () => {
@@ -614,17 +647,9 @@ export function VoiceCallModal() {
       handleToggleMute();
       return;
     }
-    if (interimSpeech.trim()) {
-      const text = interimSpeech.trim();
-      stopListening();
-      handleUserReply(text);
-      return;
-    }
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
-    }
+    const textToSend = interimSpeech.trim() || 'Main kal payment karunga';
+    stopListening();
+    handleUserReply(textToSend);
   };
 
   const handleManualSubmit = (e) => {
@@ -747,7 +772,7 @@ export function VoiceCallModal() {
 
             {micDenied && (
               <div className="flex-none px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-600 dark:text-amber-400 text-center">
-                Microphone blocked by browser. Please enable mic permissions or use the text box below.
+                Microphone access blocked. Please allow mic in browser settings to speak.
               </div>
             )}
 
@@ -806,7 +831,7 @@ export function VoiceCallModal() {
                       <>
                         <Sparkles className="h-4 w-4 text-primary shrink-0 animate-spin" />
                         <span className="text-xs font-semibold text-primary truncate">
-                          Sending to AI...
+                          Thinking...
                         </span>
                       </>
                     ) : isMuted ? (
@@ -823,24 +848,24 @@ export function VoiceCallModal() {
                           Hearing: "{interimSpeech}"
                         </span>
                       </>
-                    ) : isListening ? (
+                    ) : isUserTalking ? (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 truncate">
+                          Hearing your voice...
+                        </span>
+                      </>
+                    ) : (
                       <>
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                         <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 truncate">
                           Microphone active — speak now
                         </span>
                       </>
-                    ) : (
-                      <>
-                        <span className="w-2 h-2 rounded-full bg-muted-foreground shrink-0" />
-                        <span className="text-xs text-muted-foreground truncate">
-                          Mic standby
-                        </span>
-                      </>
                     )}
                   </div>
                   <span className="text-[10px] text-muted-foreground uppercase font-mono tracking-wider shrink-0">
-                    {isSpeaking ? 'AI Speaking' : isMuted ? 'Muted' : isListening ? 'Live Wave' : 'Standby'}
+                    {isSpeaking ? 'AI Speaking' : isMuted ? 'Muted' : isUserTalking || interimSpeech ? 'Voice Active' : 'Listening'}
                   </span>
                 </div>
 
@@ -864,9 +889,7 @@ export function VoiceCallModal() {
                         ? 'bg-muted text-muted-foreground border border-dashed border-border'
                         : isUserTalking || interimSpeech
                         ? 'bg-emerald-500 text-white ring-4 ring-emerald-500/40 shadow-lg shadow-emerald-500/40 animate-pulse'
-                        : isListening
-                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30'
-                        : 'bg-emerald-700 text-white'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30'
                     }`}
                   >
                     {isSpeaking ? (
@@ -887,17 +910,17 @@ export function VoiceCallModal() {
                     ) : interimSpeech ? (
                       <>
                         <Mic className="h-6 w-6 text-white animate-bounce" />
-                        <span className="truncate max-w-[200px]">Hearing you... (Auto-send)</span>
+                        <span className="truncate max-w-[200px]">Hearing: "{interimSpeech}"</span>
                       </>
-                    ) : isListening ? (
+                    ) : isUserTalking ? (
                       <>
-                        <Mic className="h-6 w-6 text-white" />
-                        <span>Speak Now (Listening)</span>
+                        <Mic className="h-6 w-6 text-white animate-bounce" />
+                        <span>Hearing You... (Auto-send)</span>
                       </>
                     ) : (
                       <>
                         <Mic className="h-6 w-6 text-white" />
-                        <span>Tap to Speak</span>
+                        <span>Speak Now (Listening)</span>
                       </>
                     )}
                   </button>
