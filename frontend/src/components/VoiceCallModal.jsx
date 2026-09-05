@@ -15,14 +15,22 @@ import {
   Loader2,
   Radio,
   Activity,
-  AlertCircle
+  AlertCircle,
+  ArrowRight
 } from 'lucide-react';
 import { useVoiceCallStore, useLiveFeedStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+const getBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:3001';
+    }
+  }
+  return import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+};
 
 class RingtonePlayer {
   constructor() {
@@ -86,11 +94,12 @@ export function VoiceCallModal() {
   const [recordingState, setRecordingState] = useState('idle');
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [hasVoiceDetected, setHasVoiceDetected] = useState(false);
-  const [lastSttLog, setLastSttLog] = useState('Mic ready');
+  const [lastSttLog, setLastSttLog] = useState('Mic connected');
 
   const ringtoneRef = useRef(null);
   const transcriptContainerRef = useRef(null);
   const audioRef = useRef(null);
+  const fallbackTimerRef = useRef(null);
 
   const micStreamRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -101,7 +110,6 @@ export function VoiceCallModal() {
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
   const vadIntervalRef = useRef(null);
-  const maxRecordTimerRef = useRef(null);
   const isRecordingRef = useRef(false);
   const hasSpokenRef = useRef(false);
   const silenceCountRef = useRef(0);
@@ -176,8 +184,8 @@ export function VoiceCallModal() {
       const curVolume = Math.min(100, Math.round((avg / 128) * 100));
       setVolumeLevel(curVolume);
 
-      const n = 32;
-      const bw = 5;
+      const n = 36;
+      const bw = 4;
       const gap = Math.max(3, (W - n * bw) / (n + 1));
 
       for (let i = 0; i < n; i++) {
@@ -186,20 +194,20 @@ export function VoiceCallModal() {
         let bh = 4;
 
         if (isMutedRef.current) {
-          bh = 3;
+          bh = 2;
           ctx2d.fillStyle = 'rgba(239, 68, 68, 0.4)';
         } else if (isSpeakingRef.current) {
-          bh = Math.max(5, Math.sin(Date.now() / 120 + i * 0.4) * 12 + 15);
-          ctx2d.fillStyle = 'rgba(161, 161, 170, 0.65)';
+          bh = Math.max(4, Math.sin(Date.now() / 110 + i * 0.4) * 10 + 12);
+          ctx2d.fillStyle = 'rgba(148, 163, 184, 0.7)';
         } else if (recordingState === 'sending') {
-          bh = Math.max(4, Math.sin(Date.now() / 100 + i * 0.5) * 8 + 10);
+          bh = Math.max(4, Math.sin(Date.now() / 90 + i * 0.45) * 8 + 9);
           ctx2d.fillStyle = '#f59e0b';
-        } else if (hasSpokenRef.current || curVolume > 8) {
-          bh = Math.max(6, Math.min(H - 4, (val / 255) * (H - 4)));
+        } else if (hasSpokenRef.current || curVolume > 7) {
+          bh = Math.max(5, Math.min(H - 4, (val / 255) * (H - 4)));
           ctx2d.fillStyle = '#10b981';
         } else {
           bh = Math.max(3, (val / 255) * (H - 8));
-          ctx2d.fillStyle = 'rgba(100, 116, 139, 0.4)';
+          ctx2d.fillStyle = 'rgba(71, 85, 105, 0.4)';
         }
 
         const x = gap + i * (bw + gap);
@@ -222,7 +230,6 @@ export function VoiceCallModal() {
 
   const stopRecordingAndSend = () => {
     if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
-    if (maxRecordTimerRef.current) { clearTimeout(maxRecordTimerRef.current); maxRecordTimerRef.current = null; }
     isRecordingRef.current = false;
     setHasVoiceDetected(false);
     hasSpokenRef.current = false;
@@ -235,7 +242,7 @@ export function VoiceCallModal() {
 
   const sendAudioToSTT = async (blob) => {
     if (!blob || blob.size < 600) {
-      setLastSttLog('Empty audio captured');
+      setLastSttLog('Empty audio chunk');
       if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
         startRecording();
       }
@@ -244,12 +251,13 @@ export function VoiceCallModal() {
 
     setRecordingState('sending');
     setListening(false);
-    setLastSttLog(`Uploading ${Math.round(blob.size / 1024)}KB to Sarvam...`);
+    setLastSttLog(`Transcribing audio (${Math.round(blob.size / 1024)} KB)...`);
 
     try {
       const form = new FormData();
       form.append('audio', blob, 'speech.webm');
-      const res = await fetch(`${BASE_URL}/api/voice/stt`, {
+      const baseUrl = getBaseUrl();
+      const res = await fetch(`${baseUrl}/api/voice/stt`, {
         method: 'POST',
         body: form,
       });
@@ -257,16 +265,16 @@ export function VoiceCallModal() {
       const data = await res.json();
       if (res.ok && data.success && data.transcript?.trim()) {
         const recognized = data.transcript.trim();
-        setLastSttLog(`Transcribed: "${recognized}"`);
+        setLastSttLog(`Heard: "${recognized}"`);
         await handleUserReply(recognized);
       } else {
-        setLastSttLog(data.error || 'No speech recognized');
+        setLastSttLog(data.error ? `STT Error: ${data.error}` : 'No speech recognized');
         if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
           startRecording();
         }
       }
     } catch (err) {
-      setLastSttLog(`Upload failed: ${err.message}`);
+      setLastSttLog(`Network error: ${err.message}`);
       if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
         startRecording();
       }
@@ -285,7 +293,6 @@ export function VoiceCallModal() {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') return;
 
     if (vadIntervalRef.current) { clearInterval(vadIntervalRef.current); vadIntervalRef.current = null; }
-    if (maxRecordTimerRef.current) { clearTimeout(maxRecordTimerRef.current); maxRecordTimerRef.current = null; }
 
     chunksRef.current = [];
     isRecordingRef.current = true;
@@ -294,7 +301,7 @@ export function VoiceCallModal() {
     setHasVoiceDetected(false);
     setRecordingState('recording');
     setListening(true);
-    setLastSttLog('Listening for speech...');
+    setLastSttLog('Listening for your voice...');
 
     let mimeType = '';
     if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
@@ -323,7 +330,7 @@ export function VoiceCallModal() {
         setRecordingState('idle');
       };
 
-      recorder.start(120);
+      recorder.start(150);
 
       vadIntervalRef.current = setInterval(() => {
         if (!isRecordingRef.current || !analyserRef.current || !freqDataRef.current) {
@@ -337,14 +344,14 @@ export function VoiceCallModal() {
         const avg = s / (freqDataRef.current.length || 1);
         const curPct = Math.min(100, Math.round((avg / 128) * 100));
 
-        if (curPct > 9) {
+        if (curPct > 7) {
           hasSpokenRef.current = true;
           setHasVoiceDetected(true);
           silenceCountRef.current = 0;
         } else {
           if (hasSpokenRef.current) {
             silenceCountRef.current += 1;
-            if (silenceCountRef.current >= 10) {
+            if (silenceCountRef.current >= 9) {
               if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
               stopRecordingAndSend();
             }
@@ -353,12 +360,6 @@ export function VoiceCallModal() {
           }
         }
       }, 140);
-
-      maxRecordTimerRef.current = setTimeout(() => {
-        if (isRecordingRef.current && mediaRecorderRef.current?.state === 'recording') {
-          stopRecordingAndSend();
-        }
-      }, 25000);
 
     } catch (err) {
       isRecordingRef.current = false;
@@ -422,14 +423,20 @@ export function VoiceCallModal() {
       try { audioRef.current.pause(); audioRef.current.currentTime = 0; } catch (e) {}
       audioRef.current = null;
     }
+    if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+
     stopRecordingAndSend();
     setListening(false);
     setRecordingState('idle');
     isSpeakingRef.current = true;
     setSpeaking(true);
 
+    let doneFired = false;
     const onDone = () => {
+      if (doneFired) return;
+      doneFired = true;
+      if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
       isSpeakingRef.current = false;
       setSpeaking(false);
       audioRef.current = null;
@@ -437,11 +444,14 @@ export function VoiceCallModal() {
         if (callStateRef.current === 'connected' && !isMutedRef.current) {
           startRecording();
         }
-      }, 250);
+      }, 200);
     };
 
+    fallbackTimerRef.current = setTimeout(onDone, 12000);
+
     try {
-      const ttsRes = await fetch(`${BASE_URL}/api/voice/tts`, {
+      const baseUrl = getBaseUrl();
+      const ttsRes = await fetch(`${baseUrl}/api/voice/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -463,7 +473,9 @@ export function VoiceCallModal() {
         };
         audio.onended = () => { URL.revokeObjectURL(url); onDone(); };
         audio.onerror = () => { URL.revokeObjectURL(url); onDone(); };
-        await audio.play();
+        audio.play().catch(e => {
+          onDone();
+        });
         return;
       }
     } catch (err) {}
@@ -476,9 +488,10 @@ export function VoiceCallModal() {
     if (callState === 'connected' && callData) {
       const greeting = callData.script ||
         `Namaste ${callData.customerName || 'Customer'}! Main Demo.pay recovery desk se ${agentName} baat kar ${agentGender === 'male' ? 'raha' : 'rahi'} hoon. Maine dekha aapka payment checkout par ruk gaya tha. Kya payment mein koi takleef aayi thi?`;
-      setTimeout(() => speakText(greeting), 450);
+      setTimeout(() => speakText(greeting), 400);
     }
     return () => {
+      if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
       if (audioRef.current) { try { audioRef.current.pause(); } catch (e) {} audioRef.current = null; }
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
       stopRecordingAndSend();
@@ -504,7 +517,8 @@ export function VoiceCallModal() {
     addTranscript('user', userText);
 
     try {
-      const res = await fetch(`${BASE_URL}/api/voice/interact`, {
+      const baseUrl = getBaseUrl();
+      const res = await fetch(`${baseUrl}/api/voice/interact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -560,16 +574,6 @@ export function VoiceCallModal() {
     }
   };
 
-  const handleMainButtonClick = () => {
-    if (isSpeaking || isProcessing) return;
-    if (isMuted) { handleToggleMute(); return; }
-    if (isRecordingRef.current) {
-      stopRecordingAndSend();
-    } else {
-      startRecording();
-    }
-  };
-
   const handleManualSubmit = (e) => {
     e.preventDefault();
     if (!inputText.trim()) return;
@@ -588,88 +592,27 @@ export function VoiceCallModal() {
   const isRecordingActive = recordingState === 'recording';
   const isSending = recordingState === 'sending';
 
-  let bannerText = 'Ready to speak';
-  let bannerClass = 'bg-muted/40 text-muted-foreground border-border';
+  let bannerText = 'Ready';
+  let bannerBg = 'bg-slate-800/80 text-slate-300 border-slate-700';
 
   if (isSpeaking) {
     bannerText = `${agentName} is speaking...`;
-    bannerClass = 'bg-zinc-800 text-zinc-300 border-zinc-700';
+    bannerBg = 'bg-zinc-800 text-zinc-300 border-zinc-700';
   } else if (isProcessing) {
     bannerText = `${agentName} is thinking...`;
-    bannerClass = 'bg-primary/10 text-primary border-primary/30';
+    bannerBg = 'bg-primary/15 text-primary border-primary/30';
   } else if (isSending) {
     bannerText = 'Sending your voice to AI...';
-    bannerClass = 'bg-amber-500/20 text-amber-400 border-amber-500/40 animate-pulse';
+    bannerBg = 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse';
   } else if (isMuted) {
-    bannerText = 'Microphone muted (click Unmute to talk)';
-    bannerClass = 'bg-destructive/10 text-destructive border-destructive/30';
+    bannerText = 'Microphone Muted';
+    bannerBg = 'bg-destructive/15 text-destructive border-destructive/30';
   } else if (isRecordingActive && hasVoiceDetected) {
-    bannerText = `Voice Detected! (${volumeLevel}%) — listening to you...`;
-    bannerClass = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 animate-pulse';
+    bannerText = `Voice Detected (${volumeLevel}%) — listening to you...`;
+    bannerBg = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 animate-pulse';
   } else if (isRecordingActive) {
     bannerText = 'No voice detected — speak into your microphone';
-    bannerClass = 'bg-slate-800/80 text-slate-300 border-slate-700';
-  }
-
-  let buttonContent = null;
-  let btnClass = 'bg-emerald-600 hover:bg-emerald-500 text-white';
-
-  if (isSpeaking) {
-    btnClass = 'bg-zinc-800 text-zinc-400 border border-zinc-700 cursor-not-allowed opacity-90';
-    buttonContent = (
-      <>
-        <Volume2 className="h-5 w-5 animate-pulse text-zinc-400" />
-        <span>{agentName} Speaking...</span>
-      </>
-    );
-  } else if (isProcessing) {
-    btnClass = 'bg-primary/20 text-primary border border-primary/40 cursor-not-allowed';
-    buttonContent = (
-      <>
-        <Loader2 className="h-5 w-5 animate-spin text-primary" />
-        <span>Thinking...</span>
-      </>
-    );
-  } else if (isSending) {
-    btnClass = 'bg-amber-600 text-white border border-amber-500 animate-pulse cursor-wait';
-    buttonContent = (
-      <>
-        <Loader2 className="h-5 w-5 animate-spin" />
-        <span>Sending Voice to AI...</span>
-      </>
-    );
-  } else if (isMuted) {
-    btnClass = 'bg-muted text-muted-foreground border border-dashed border-border';
-    buttonContent = (
-      <>
-        <MicOff className="h-5 w-5 text-muted-foreground" />
-        <span>Muted — Click to Unmute</span>
-      </>
-    );
-  } else if (isRecordingActive && hasVoiceDetected) {
-    btnClass = 'bg-emerald-500 hover:bg-emerald-600 text-white ring-4 ring-emerald-500/40 shadow-lg shadow-emerald-500/30';
-    buttonContent = (
-      <>
-        <Radio className="h-5 w-5 animate-pulse text-white" />
-        <span>Voice Detected! Click to Send Now</span>
-      </>
-    );
-  } else if (isRecordingActive) {
-    btnClass = 'bg-emerald-700 hover:bg-emerald-600 text-white';
-    buttonContent = (
-      <>
-        <Mic className="h-5 w-5" />
-        <span>Listening... Speak Now</span>
-      </>
-    );
-  } else {
-    btnClass = 'bg-emerald-600 hover:bg-emerald-500 text-white';
-    buttonContent = (
-      <>
-        <Mic className="h-5 w-5" />
-        <span>Start Speaking</span>
-      </>
-    );
+    bannerBg = 'bg-slate-800/90 text-slate-300 border-slate-700';
   }
 
   return (
@@ -731,7 +674,7 @@ export function VoiceCallModal() {
             initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="w-full max-w-lg rounded-2xl border bg-card shadow-2xl flex flex-col overflow-hidden"
-            style={{ height: '650px', maxHeight: '94vh' }}
+            style={{ height: '620px', maxHeight: '92vh' }}
           >
             <div className="flex-none h-14 px-4 border-b flex items-center justify-between bg-muted/30">
               <div className="flex items-center gap-3">
@@ -758,7 +701,7 @@ export function VoiceCallModal() {
                 </div>
               </div>
               {callState === 'connected' ? (
-                <Button size="sm" variant="destructive" className="rounded-full px-4 h-8 gap-1"
+                <Button size="sm" variant="destructive" className="rounded-full px-3 h-8 gap-1.5"
                   onClick={() => { stopRecordingAndSend(); endCall(); }}>
                   <PhoneOff className="h-3.5 w-3.5" />
                   <span className="text-xs">End Call</span>
@@ -785,7 +728,7 @@ export function VoiceCallModal() {
               </div>
             )}
 
-            <div ref={transcriptContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-background">
+            <div ref={transcriptContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-background/50">
               {transcript.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
                   <Sparkles className="h-8 w-8 opacity-30" />
@@ -815,70 +758,55 @@ export function VoiceCallModal() {
             </div>
 
             {callState === 'connected' && (
-              <div className="flex-none border-t bg-muted/20 px-4 py-2.5 space-y-2">
-                <div className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center justify-between transition-colors ${bannerClass}`}>
-                  <div className="flex items-center gap-2">
+              <div className="flex-none border-t bg-card p-3 space-y-3">
+                <div className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center justify-between transition-colors ${bannerBg}`}>
+                  <div className="flex items-center gap-2 min-w-0">
                     {isSpeaking ? (
-                      <Volume2 className="h-3.5 w-3.5 text-zinc-300 animate-pulse" />
+                      <Volume2 className="h-4 w-4 text-zinc-300 animate-pulse shrink-0" />
                     ) : isSending ? (
-                      <Loader2 className="h-3.5 w-3.5 text-amber-400 animate-spin" />
+                      <Loader2 className="h-4 w-4 text-amber-400 animate-spin shrink-0" />
                     ) : isProcessing ? (
-                      <Sparkles className="h-3.5 w-3.5 text-primary animate-spin" />
+                      <Sparkles className="h-4 w-4 text-primary animate-spin shrink-0" />
                     ) : hasVoiceDetected ? (
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
                     ) : (
-                      <span className="w-2 h-2 rounded-full bg-slate-400" />
+                      <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
                     )}
-                    <span>{bannerText}</span>
+                    <span className="truncate">{bannerText}</span>
                   </div>
-                  <span className="text-[11px] font-mono opacity-80">
-                    Mic: {isMuted ? 'Muted' : `${volumeLevel}%`}
-                  </span>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isRecordingActive && hasVoiceDetected && (
+                      <button
+                        type="button"
+                        onClick={stopRecordingAndSend}
+                        className="px-2 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 shadow"
+                      >
+                        Send Now <ArrowRight className="h-3 w-3" />
+                      </button>
+                    )}
+                    <span className="text-[10px] font-mono opacity-75">
+                      {isMuted ? 'Muted' : `${volumeLevel}%`}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="h-10 w-full bg-background/70 rounded-xl border flex items-center justify-center px-2 overflow-hidden shadow-inner">
-                  <canvas ref={canvasRef} width={400} height={36} className="w-full h-9 block" />
-                </div>
-              </div>
-            )}
-
-            {callState === 'connected' && (
-              <div className="flex-none border-t bg-muted/40 p-3 space-y-2.5">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleMainButtonClick}
-                    disabled={isSpeaking || isProcessing || isSending}
-                    className={`flex-1 h-14 rounded-2xl flex items-center justify-center gap-3 font-semibold text-sm transition-all focus:outline-none select-none ${btnClass}`}
-                  >
-                    {buttonContent}
-                  </button>
-
-                  <Button
-                    type="button"
-                    variant={isMuted ? 'destructive' : 'outline'}
-                    onClick={handleToggleMute}
-                    className={`h-14 px-5 rounded-2xl flex items-center gap-2 font-semibold text-xs shrink-0 transition-all ${
-                      isMuted ? 'bg-destructive hover:bg-destructive/90 text-white shadow-md' : 'border-border text-foreground hover:bg-muted'
-                    }`}
-                  >
-                    {isMuted ? <><MicOff className="h-4 w-4" /><span>Unmute</span></> : <><Mic className="h-4 w-4 text-emerald-500" /><span>Mute</span></>}
-                  </Button>
+                <div className="h-9 w-full bg-muted/40 rounded-lg border flex items-center justify-center px-2 overflow-hidden">
+                  <canvas ref={canvasRef} width={420} height={32} className="w-full h-8 block" />
                 </div>
 
                 {!promiseResult && (
-                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {[
                       ['📅 Kal pay karunga', 'Main kal payment karunga'],
                       ['🎁 Discount milega?', 'Thoda discount mil sakta hai kya?'],
                       ['⏰ Shaam ko remind karna', 'Shaam ko reminder bhej dena'],
-                      ['📉 Aur kam karo', 'Budget kam hai, aur discount do'],
                     ].map(([label, reply]) => (
                       <button
                         key={label}
                         type="button"
                         onClick={() => handleUserReply(reply)}
-                        className="text-[11px] h-6 px-2.5 rounded-full border bg-background/80 hover:border-primary hover:bg-primary/5 transition-colors text-muted-foreground hover:text-foreground"
+                        className="text-[11px] h-6 px-2.5 rounded-full border bg-muted/50 hover:border-primary hover:bg-primary/5 transition-colors text-muted-foreground hover:text-foreground"
                       >
                         {label}
                       </button>
@@ -886,23 +814,47 @@ export function VoiceCallModal() {
                   </div>
                 )}
 
-                <form onSubmit={handleManualSubmit} className="flex gap-2">
-                  <Input
-                    value={inputText}
-                    onChange={e => setInputText(e.target.value)}
-                    placeholder="Or type your reply here..."
-                    className="text-xs h-8 bg-background"
-                  />
-                  <Button type="submit" size="sm" className="h-8 px-3 shrink-0" disabled={!inputText.trim() || isProcessing}>
-                    <Send className="h-3 w-3" />
+                <div className="flex items-center gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant={isMuted ? 'destructive' : 'outline'}
+                    size="icon"
+                    onClick={handleToggleMute}
+                    className={`h-10 w-10 rounded-full shrink-0 ${
+                      isMuted ? 'bg-destructive text-white shadow' : 'border-border text-foreground hover:bg-muted'
+                    }`}
+                    title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+                  >
+                    {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4 text-emerald-500" />}
                   </Button>
-                </form>
 
-                <div className="text-[10px] text-muted-foreground flex items-center justify-between px-1 pt-0.5 font-mono">
-                  <span className="truncate max-w-[280px]">Status: {lastSttLog}</span>
-                  <a href="/test-mic" target="_blank" rel="noreferrer" className="text-primary hover:underline shrink-0">
-                    Mic Diagnostics ↗
-                  </a>
+                  <form onSubmit={handleManualSubmit} className="flex-1 flex gap-2">
+                    <Input
+                      value={inputText}
+                      onChange={e => setInputText(e.target.value)}
+                      placeholder="Type a message or speak naturally..."
+                      className="text-xs h-10 bg-background"
+                    />
+                    <Button type="submit" size="sm" className="h-10 px-3.5 shrink-0" disabled={!inputText.trim() || isProcessing}>
+                      <Send className="h-3.5 w-3.5" />
+                    </Button>
+                  </form>
+
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="icon"
+                    onClick={() => { stopRecordingAndSend(); endCall(); }}
+                    className="h-10 w-10 rounded-full bg-red-600 hover:bg-red-700 text-white shrink-0 shadow"
+                    title="End Call"
+                  >
+                    <PhoneOff className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="text-[10px] text-muted-foreground flex items-center justify-between px-1 font-mono">
+                  <span className="truncate max-w-[340px]">Audio: {lastSttLog}</span>
+                  <span className="opacity-60">{isRecordingActive ? 'MIC ON' : isSpeaking ? 'TTS ON' : 'IDLE'}</span>
                 </div>
               </div>
             )}
