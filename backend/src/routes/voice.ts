@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
 import { db } from '../db';
 import { recoveryCases, orders, customers, orderItems, products, policies } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
@@ -7,6 +8,8 @@ import { recordPromiseToPay } from '../services/promiseService';
 import { sseEmitter } from '../services/sse';
 import { generateVoiceGreeting, handleVoiceTurnWithAdk } from '../agents/voiceAgent';
 import { synthesizeSpeech } from '../services/ttsService';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = Router();
 
@@ -245,6 +248,47 @@ router.post('/voice/tts', async (req: Request, res: Response, next: NextFunction
       'Cache-Control': 'no-cache',
     });
     res.send(audioBuffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/voice/stt', upload.single('audio'), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
+      res.status(400).json({ error: 'No audio file received' });
+      return;
+    }
+
+    const audioBuffer = req.file.buffer;
+    const mimeType = req.file.mimetype || 'audio/webm';
+
+    const formData = new FormData();
+    const blob = new Blob([new Uint8Array(audioBuffer)], { type: mimeType });
+    formData.append('file', blob, 'audio.webm');
+    formData.append('model', 'saaras:v2');
+    formData.append('mode', 'verbatim');
+    formData.append('language_code', 'hi-IN');
+
+    const sarvamRes = await fetch('https://api.sarvam.ai/speech-to-text', {
+      method: 'POST',
+      headers: {
+        'api-subscription-key': env.SARVAM_API_KEY,
+      },
+      body: formData,
+    });
+
+    if (!sarvamRes.ok) {
+      const errText = await sarvamRes.text().catch(() => '');
+      console.warn('Sarvam STT error:', sarvamRes.status, errText);
+      res.status(502).json({ error: 'STT service error', detail: errText });
+      return;
+    }
+
+    const sarvamData = await sarvamRes.json() as { transcript?: string; };
+    const transcript = (sarvamData.transcript || '').trim();
+
+    res.json({ success: true, transcript });
   } catch (err) {
     next(err);
   }
