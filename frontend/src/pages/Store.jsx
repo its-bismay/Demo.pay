@@ -384,14 +384,15 @@ function CheckoutDrawer() {
     } catch (e) {
       console.warn('Voice call initiate error:', e);
     }
-    // Fallback data
     triggerCall({
       orderId: oid,
       customerName: customer?.name || 'Customer',
       productName: cartItems[0]?.product?.name || 'Order Items',
       amountInRs: cartTotal || 2499,
-      discountPct: 10,
-      script: `Namaste ${customer?.name || 'Customer'}! Main Demo.pay recovery desk se Aditi baat kar rahi hoon. Maine dekha aapka payment complete nahi ho paya. Humne aapke liye ek special 10% discount activate kiya hai. Kya aap abhi order complete karna chahenge ya kal schedule karein?`,
+      discountPct: 0,
+      agentName: 'Aarav',
+      agentGender: 'male',
+      script: `Namaste ${customer?.name || 'Customer'}! Main Demo.pay recovery desk se baat kar raha hoon. Maine dekha aapka checkout complete nahi ho paya tha. Kya main payment complete karne mein aapki koi madad kar sakta hoon?`,
     });
   };
 
@@ -538,7 +539,7 @@ function CheckoutDrawer() {
                 </div>
                 <div className="bg-primary/10 border border-primary/20 p-3 rounded-md space-y-2">
                   <p className="text-primary font-medium animate-pulse text-xs">
-                    🔔 Autonomous Voice Agent (Aditi) is calling your browser now...
+                    🔔 Autonomous Voice Agent is calling your browser now...
                   </p>
                   <Button
                     type="button"

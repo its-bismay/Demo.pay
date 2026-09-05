@@ -712,8 +712,10 @@ function CaseDetailDialog({ caseId, open, onOpenChange }) {
       customerName: custName,
       productName: 'Store Order',
       amountInRs,
-      discountPct: 10,
-      script: `Namaste ${custName}! Main Demo.pay recovery desk se Aditi baat kar rahi hoon. Maine dekha aapka ₹${amountInRs.toLocaleString()} ka order complete nahi ho paya tha. Humne aapke liye 10% instant discount unlock kiya hai. Kya aap abhi order complete karna chahenge ya kal schedule karein?`,
+      discountPct: 0,
+      agentName: 'Aarav',
+      agentGender: 'male',
+      script: `Namaste ${custName}! Main Demo.pay recovery desk se baat kar raha hoon. Maine dekha aapka ₹${amountInRs.toLocaleString()} ka order complete nahi ho paya tha. Kya main payment complete karne mein aapki koi madad kar sakta hoon?`,
     });
   };
 

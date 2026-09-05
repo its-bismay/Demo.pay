@@ -93,6 +93,8 @@ router.post('/voice/initiate', async (req: Request, res: Response, next: NextFun
       discountPct: greetingResult.discountPct,
       discountedPrice: greetingResult.discountedPrice,
       script: greetingResult.script,
+      agentName: greetingResult.agentName,
+      agentGender: greetingResult.agentGender,
       voiceType,
       languageMode,
     });
@@ -103,7 +105,7 @@ router.post('/voice/initiate', async (req: Request, res: Response, next: NextFun
 
 router.post('/voice/interact', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { caseId, orderId, userSpeech, conversationHistory = [] } = req.body;
+    const { caseId, orderId, userSpeech, conversationHistory = [], currentDiscount = 0 } = req.body;
 
     let customer = null;
     let productName = 'Order';
@@ -164,6 +166,7 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
         amountInRs,
         failureMode,
         maxDiscountPct: maxDiscount,
+        currentDiscountPct: Number(currentDiscount) || 0,
         personaPrompt: policy?.personaPrompt ?? undefined,
         voiceType: policy?.voiceType ?? 'ritu',
         languageMode: policy?.languageMode ?? 'Hinglish',
@@ -207,6 +210,8 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
       aiReply: turnResult.aiReply,
       isPromise: turnResult.isPromise,
       hoursAhead: turnResult.hoursAhead,
+      discountAppliedPct: turnResult.discountAppliedPct,
+      agentName: turnResult.agentName,
       promiseRecorded,
       promiseDetails,
     });

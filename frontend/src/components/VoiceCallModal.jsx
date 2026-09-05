@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Phone, PhoneOff, PhoneCall, Mic, MicOff, Volume2, Sparkles, CheckCircle2, Clock, MessageSquare, Send, ShieldCheck } from 'lucide-react';
+import { Phone, PhoneOff, PhoneCall, Mic, MicOff, Volume2, Sparkles, CheckCircle2, Clock, MessageSquare, Send, ShieldCheck, Tag } from 'lucide-react';
 import { useVoiceCallStore, useLiveFeedStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 
-// Web Audio synthesizer for phone ringtone
 class RingtonePlayer {
   constructor() {
     this.ctx = null;
@@ -29,7 +28,7 @@ class RingtonePlayer {
         const gain = this.ctx.createGain();
 
         osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(440, now); // US/India PBX tone
+        osc1.frequency.setValueAtTime(440, now);
         osc2.type = 'sine';
         osc2.frequency.setValueAtTime(480, now);
 
@@ -90,6 +89,7 @@ export function VoiceCallModal() {
     endCall,
     closeModal,
     addTranscript,
+    updateTranscriptText,
     setMuted,
     setSpeaking,
     setListening,
@@ -102,19 +102,32 @@ export function VoiceCallModal() {
   const [callDuration, setCallDuration] = useState(0);
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [interimSpeech, setInterimSpeech] = useState('');
+  const [currentDiscount, setCurrentDiscount] = useState(0);
 
   const ringtoneRef = useRef(null);
   const recognitionRef = useRef(null);
   const transcriptEndRef = useRef(null);
+  const audioRef = useRef(null);
 
-  // Auto-scroll transcript
+  const voiceLower = (callData?.voiceType || '').toLowerCase();
+  const isFemale = voiceLower.includes('female') || voiceLower.includes('ritu') || voiceLower.includes('priya') || voiceLower.includes('aditi');
+  const isMale = !isFemale && (voiceLower.includes('male') || voiceLower.includes('shubh') || voiceLower.includes('arun') || voiceLower.includes('aarav'));
+  const agentName = callData?.agentName || (isMale ? 'Aarav' : 'Aditi');
+  const agentGender = callData?.agentGender || (isMale ? 'male' : 'female');
+
+  useEffect(() => {
+    if (callData?.discountPct !== undefined) {
+      setCurrentDiscount(callData.discountPct);
+    }
+  }, [callData]);
+
   useEffect(() => {
     if (transcriptEndRef.current) {
       transcriptEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [transcript]);
+  }, [transcript, interimSpeech]);
 
-  // Handle ringtone audio
   useEffect(() => {
     if (isOpen && callState === 'ringing') {
       ringtoneRef.current = new RingtonePlayer();
@@ -134,7 +147,6 @@ export function VoiceCallModal() {
     };
   }, [isOpen, callState]);
 
-  // Handle call timer
   useEffect(() => {
     let timer;
     if (callState === 'connected') {
@@ -145,7 +157,36 @@ export function VoiceCallModal() {
     return () => clearInterval(timer);
   }, [callState]);
 
-  const audioRef = useRef(null);
+  const handleAcceptCall = async () => {
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+      }
+    } catch (err) {
+      console.warn('Microphone permission not granted:', err);
+    }
+    acceptCall();
+  };
+
+  const streamWordsIntoTranscript = (text, durationSec = 3) => {
+    const words = text.split(' ');
+    if (!words.length) return;
+    const msgId = Date.now().toString();
+    addTranscript('agent', words[0], msgId);
+    const safeDuration = Math.max(1.5, Math.min(8, durationSec));
+    const intervalMs = Math.max(70, Math.min(220, (safeDuration * 1000) / words.length));
+
+    let idx = 1;
+    const timer = setInterval(() => {
+      if (idx < words.length) {
+        idx++;
+        updateTranscriptText(msgId, words.slice(0, idx).join(' '));
+      } else {
+        clearInterval(timer);
+      }
+    }, intervalMs);
+  };
 
   const speakText = async (text) => {
     if (audioRef.current) {
@@ -161,6 +202,10 @@ export function VoiceCallModal() {
     }
 
     setSpeaking(true);
+    setListening(false);
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch (e) {}
+    }
 
     try {
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
@@ -169,7 +214,7 @@ export function VoiceCallModal() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
-          voiceType: callData?.voiceType || 'ritu',
+          voiceType: callData?.voiceType || (isMale ? 'shubh' : 'ritu'),
           languageMode: callData?.languageMode || 'Hinglish',
         }),
       });
@@ -179,6 +224,11 @@ export function VoiceCallModal() {
         const audioUrl = URL.createObjectURL(blob);
         const audio = new Audio(audioUrl);
         audioRef.current = audio;
+
+        audio.onplay = () => {
+          setSpeaking(true);
+          streamWordsIntoTranscript(text, audio.duration || 3);
+        };
 
         audio.onended = () => {
           setSpeaking(false);
@@ -200,6 +250,7 @@ export function VoiceCallModal() {
     } catch (err) {}
 
     if (!('speechSynthesis' in window)) {
+      addTranscript('agent', text);
       setSpeaking(false);
       startListening();
       return;
@@ -207,19 +258,22 @@ export function VoiceCallModal() {
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.95;
-    utterance.pitch = 1.05;
+    utterance.pitch = isMale ? 0.9 : 1.05;
 
     const voices = window.speechSynthesis.getVoices();
-    const inVoice =
-      voices.find(
-        (v) =>
-          v.lang.includes('IN') ||
-          v.lang.includes('hi') ||
-          v.name.includes('India') ||
-          v.name.includes('Aditi')
+    const matchVoice =
+      voices.find((v) =>
+        isMale
+          ? v.name.includes('Male') || v.name.includes('David') || v.name.includes('Ravi')
+          : v.lang.includes('IN') || v.lang.includes('hi') || v.name.includes('Aditi') || v.name.includes('Priya')
       ) || voices.find((v) => v.lang.startsWith('en'));
 
-    if (inVoice) utterance.voice = inVoice;
+    if (matchVoice) utterance.voice = matchVoice;
+
+    utterance.onstart = () => {
+      setSpeaking(true);
+      streamWordsIntoTranscript(text, 3);
+    };
 
     utterance.onend = () => {
       setSpeaking(false);
@@ -235,39 +289,55 @@ export function VoiceCallModal() {
   };
 
   const startListening = () => {
-    if (isMuted || callState !== 'connected') return;
+    if (isMuted || callState !== 'connected' || isSpeaking || isProcessing) return;
 
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) return;
 
     try {
       if (recognitionRef.current) {
-        recognitionRef.current.abort();
+        try { recognitionRef.current.abort(); } catch (e) {}
       }
 
       const rec = new SpeechRec();
       rec.lang = 'en-IN';
       rec.continuous = false;
-      rec.interimResults = false;
+      rec.interimResults = true;
 
       rec.onstart = () => {
         setListening(true);
+        setInterimSpeech('');
       };
 
       rec.onresult = (event) => {
-        setListening(false);
-        const speech = event.results[0][0].transcript;
-        if (speech && speech.trim()) {
-          handleUserReply(speech.trim());
+        let interim = '';
+        let final = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const tr = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            final += tr;
+          } else {
+            interim += tr;
+          }
+        }
+        if (interim) {
+          setInterimSpeech(interim);
+        }
+        if (final && final.trim()) {
+          setListening(false);
+          setInterimSpeech('');
+          handleUserReply(final.trim());
         }
       };
 
       rec.onerror = () => {
         setListening(false);
+        setInterimSpeech('');
       };
 
       rec.onend = () => {
         setListening(false);
+        setInterimSpeech('');
       };
 
       recognitionRef.current = rec;
@@ -279,16 +349,15 @@ export function VoiceCallModal() {
 
   useEffect(() => {
     if (callState === 'connected' && callData) {
-      const greeting = callData.script || `Namaste ${callData.customerName || 'Customer'}! Main Demo.pay recovery desk se Aditi baat kar rahi hoon. Maine dekha aapka ₹${callData.amountInRs || '2,499'} ka payment fail ho gaya tha. Humne aapke liye ek special 10% discount activate kiya hai. Kya aap abhi complete karna chahenge ya kal schedule karein?`;
-      addTranscript('agent', greeting);
-      setTimeout(() => speakText(greeting), 400);
+      const greeting =
+        callData.script ||
+        `Namaste ${callData.customerName || 'Customer'}! Main Demo.pay recovery desk se ${agentName} baat kar ${agentGender === 'male' ? 'raha' : 'rahi'} hoon. Maine dekha aapka payment checkout par ruk gaya tha. Kya payment mein koi takleef aayi thi? Main madad kar ${agentGender === 'male' ? 'sakta' : 'sakti'} hoon.`;
+      setTimeout(() => speakText(greeting), 500);
     }
 
     return () => {
       if (audioRef.current) {
-        try {
-          audioRef.current.pause();
-        } catch (e) {}
+        try { audioRef.current.pause(); } catch (e) {}
         audioRef.current = null;
       }
       if ('speechSynthesis' in window) {
@@ -300,11 +369,11 @@ export function VoiceCallModal() {
     };
   }, [callState]);
 
-  // Send speech to backend persuasion agent
   const handleUserReply = async (userText) => {
     if (!userText || !userText.trim()) return;
     addTranscript('user', userText);
     setIsProcessing(true);
+    setInterimSpeech('');
 
     try {
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
@@ -316,6 +385,7 @@ export function VoiceCallModal() {
           orderId: callData?.orderId,
           userSpeech: userText,
           conversationHistory: transcript,
+          currentDiscount,
         }),
       });
 
@@ -323,7 +393,10 @@ export function VoiceCallModal() {
       setIsProcessing(false);
 
       if (data.success && data.aiReply) {
-        addTranscript('agent', data.aiReply);
+        if (data.discountAppliedPct && data.discountAppliedPct > currentDiscount) {
+          setCurrentDiscount(data.discountAppliedPct);
+        }
+
         speakText(data.aiReply);
 
         if (data.promiseRecorded) {
@@ -338,22 +411,15 @@ export function VoiceCallModal() {
           addEvent({
             id: Date.now().toString(),
             type: 'promise_created',
-            message: `Voice Agent secured promise to pay from ${callData?.customerName || 'customer'} (${label}).`,
+            message: `Voice Agent (${agentName}) secured promise to pay from ${callData?.customerName || 'customer'} (${label}).`,
           });
 
           updateKpis({ activeInterventions: 1 });
-
-          // Auto-end call gracefully after sign-off
-          setTimeout(() => {
-            endCall();
-          }, 4500);
         }
       }
     } catch (err) {
-      console.warn('Voice interaction error:', err);
       setIsProcessing(false);
       const fallbackReply = 'Maine aapka request note kar liya hai aur discount link aapke phone par bhej diya hai. Thank you!';
-      addTranscript('agent', fallbackReply);
       speakText(fallbackReply);
     }
   };
@@ -377,7 +443,6 @@ export function VoiceCallModal() {
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
-        {/* Ringing Screen */}
         {callState === 'ringing' && (
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
@@ -395,20 +460,18 @@ export function VoiceCallModal() {
               <h3 className="text-xl font-bold mt-2">Demo.pay Recovery AI</h3>
               <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
                 <Sparkles className="h-3 w-3 text-primary" />
-                Autonomous Voice Concierge: Aditi
+                Autonomous Voice Concierge: {agentName}
               </p>
             </div>
 
-            {/* Pulsing Avatar */}
             <div className="relative flex items-center justify-center my-6">
               <div className="absolute w-24 h-24 rounded-full bg-primary/20 animate-ping opacity-75" />
               <div className="absolute w-28 h-28 rounded-full bg-primary/10 animate-pulse" />
-              <div className="relative w-20 h-20 rounded-full bg-gradient-to-tr from-primary to-primary/60 flex items-center justify-center shadow-lg border-2 border-background">
-                <PhoneCall className="h-9 w-9 text-primary-foreground animate-bounce" />
+              <div className={`relative w-20 h-20 rounded-full ${isMale ? 'bg-gradient-to-tr from-sky-600 to-indigo-500' : 'bg-gradient-to-tr from-primary to-primary/60'} flex items-center justify-center shadow-lg border-2 border-background`}>
+                <PhoneCall className="h-9 w-9 text-white animate-bounce" />
               </div>
             </div>
 
-            {/* Order details */}
             <div className="bg-muted/40 rounded-lg p-3 text-xs space-y-1 border">
               <div className="flex justify-between text-muted-foreground">
                 <span>Order Item</span>
@@ -418,13 +481,19 @@ export function VoiceCallModal() {
                 <span>Amount</span>
                 <span className="font-semibold text-foreground">₹{(callData?.amountInRs || 2499).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between text-emerald-500 font-medium">
-                <span>Special Offer</span>
-                <span>{callData?.discountPct || 10}% Off Activated</span>
-              </div>
+              {currentDiscount > 0 ? (
+                <div className="flex justify-between text-emerald-500 font-medium">
+                  <span>Special Offer</span>
+                  <span>{currentDiscount}% Off Activated</span>
+                </div>
+              ) : (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Assistance</span>
+                  <span>Checkout Recovery Desk</span>
+                </div>
+              )}
             </div>
 
-            {/* Actions */}
             <div className="flex items-center justify-center gap-6 pt-2">
               <div className="flex flex-col items-center gap-1">
                 <Button
@@ -442,7 +511,7 @@ export function VoiceCallModal() {
                 <Button
                   size="icon"
                   className="h-14 w-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg hover:scale-105 transition-transform animate-pulse"
-                  onClick={acceptCall}
+                  onClick={handleAcceptCall}
                 >
                   <Phone className="h-6 w-6" />
                 </Button>
@@ -452,7 +521,6 @@ export function VoiceCallModal() {
           </motion.div>
         )}
 
-        {/* Connected In-Call Screen */}
         {(callState === 'connected' || callState === 'ended') && (
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
@@ -460,12 +528,11 @@ export function VoiceCallModal() {
             exit={{ scale: 0.95, opacity: 0 }}
             className="w-full max-w-lg rounded-2xl border bg-card shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
           >
-            {/* Header */}
             <div className="p-4 border-b flex items-center justify-between bg-muted/30">
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-                    A
+                  <div className={`w-10 h-10 rounded-full ${isMale ? 'bg-sky-500/20 text-sky-500' : 'bg-primary/20 text-primary'} flex items-center justify-center font-bold`}>
+                    {agentName[0]}
                   </div>
                   {isSpeaking && (
                     <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-card animate-pulse" />
@@ -473,30 +540,37 @@ export function VoiceCallModal() {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h4 className="font-semibold text-sm">Aditi (Demo.pay AI)</h4>
-                    <Badge variant="outline" className="text-[10px] text-primary border-primary/30">Hinglish</Badge>
+                    <h4 className="font-semibold text-sm">{agentName} (Demo.pay AI)</h4>
+                    <Badge variant="outline" className="text-[10px] text-primary border-primary/30">
+                      {callData?.languageMode || 'Hinglish'}
+                    </Badge>
+                    {currentDiscount > 0 && (
+                      <Badge className="bg-emerald-600 text-white text-[10px] gap-1 py-0 h-4">
+                        <Tag className="h-2.5 w-2.5" />
+                        {currentDiscount}% Off
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Clock className="h-3 w-3" />
                     <span>{formatSeconds(callDuration)}</span>
                     <span>•</span>
                     <span className="text-emerald-500 font-medium">
-                      {callState === 'ended' ? 'Call Ended' : isSpeaking ? 'Speaking...' : isListening ? 'Listening to you...' : 'Connected'}
+                      {callState === 'ended' ? 'Call Ended' : isSpeaking ? `${agentName} speaking...` : isListening ? 'Listening to you...' : 'Connected'}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* End Call Button */}
               {callState === 'connected' ? (
                 <Button
                   size="sm"
                   variant="destructive"
-                  className="rounded-full px-4 h-9 gap-1 shadow"
+                  className="rounded-full px-4 h-9 gap-1 shadow hover:bg-destructive/90"
                   onClick={endCall}
                 >
                   <PhoneOff className="h-4 w-4" />
-                  <span className="text-xs font-medium">End</span>
+                  <span className="text-xs font-medium">End Call</span>
                 </Button>
               ) : (
                 <Button
@@ -510,30 +584,35 @@ export function VoiceCallModal() {
               )}
             </div>
 
-            {/* Audio Waveform Equalizer */}
-            <div className="px-6 py-3 bg-muted/10 border-b flex items-center justify-center gap-1.5 h-12">
-              {[...Array(20)].map((_, i) => {
-                const active = isSpeaking || isListening;
-                return (
-                  <motion.div
-                    key={i}
-                    className={`w-1 rounded-full ${isSpeaking ? 'bg-primary' : isListening ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
-                    animate={{
-                      height: active
-                        ? [6, Math.max(8, ((i * 7) % 28) + 8), 6]
-                        : 6,
-                    }}
-                    transition={{
-                      repeat: Infinity,
-                      duration: 0.5 + (i % 5) * 0.1,
-                      ease: 'easeInOut',
-                    }}
-                  />
-                );
-              })}
+            <div className="px-6 py-2.5 bg-muted/10 border-b flex flex-col items-center justify-center gap-1.5 min-h-12">
+              <div className="flex items-center justify-center gap-1.5">
+                {[...Array(20)].map((_, i) => {
+                  const active = isSpeaking || isListening;
+                  return (
+                    <motion.div
+                      key={i}
+                      className={`w-1 rounded-full ${isSpeaking ? 'bg-primary' : isListening ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
+                      animate={{
+                        height: active
+                          ? [6, Math.max(8, ((i * 7) % 28) + 8), 6]
+                          : 6,
+                      }}
+                      transition={{
+                        repeat: Infinity,
+                        duration: 0.5 + (i % 5) * 0.1,
+                        ease: 'easeInOut',
+                      }}
+                    />
+                  );
+                })}
+              </div>
+              {interimSpeech && (
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium animate-pulse truncate max-w-sm">
+                  "{interimSpeech}..."
+                </p>
+              )}
             </div>
 
-            {/* Promise Confirmed Banner */}
             {promiseResult && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
@@ -542,11 +621,10 @@ export function VoiceCallModal() {
               >
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 <span className="font-semibold">Promise to Pay Recorded:</span>
-                <span>Scheduled for {promiseResult.label}. Status updated in Admin Dashboard!</span>
+                <span>Scheduled for {promiseResult.label}. Outreach paused.</span>
               </motion.div>
             )}
 
-            {/* Conversation Transcript */}
             <div className="flex-1 p-4 overflow-y-auto space-y-3 min-h-[220px] max-h-[360px] bg-background">
               {transcript.map((msg) => (
                 <motion.div
@@ -562,10 +640,10 @@ export function VoiceCallModal() {
                         : 'bg-muted/80 text-foreground border rounded-tl-none'
                     }`}
                   >
-                    <p className="leading-relaxed">{msg.text}</p>
+                    <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                   </div>
                   <span className="text-[10px] text-muted-foreground mt-1 px-1">
-                    {msg.sender === 'user' ? 'You' : 'Aditi'} • {msg.time}
+                    {msg.sender === 'user' ? 'You' : agentName} • {msg.time}
                   </span>
                 </motion.div>
               ))}
@@ -573,14 +651,13 @@ export function VoiceCallModal() {
               {isProcessing && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground italic px-2">
                   <Sparkles className="h-3 w-3 animate-spin text-primary" />
-                  <span>Aditi is thinking...</span>
+                  <span>{agentName} is thinking...</span>
                 </div>
               )}
 
               <div ref={transcriptEndRef} />
             </div>
 
-            {/* Quick-Response Chips (Convenient 1-Tap Voice Replies) */}
             {callState === 'connected' && !promiseResult && (
               <div className="p-3 bg-muted/20 border-t space-y-2">
                 <div className="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -588,7 +665,9 @@ export function VoiceCallModal() {
                     <MessageSquare className="h-3 w-3 text-primary" />
                     Quick voice replies:
                   </span>
-                  <span className="text-[10px]">Tap or speak into mic</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                    {isListening ? '🎙️ Mic listening' : 'Tap chip or speak'}
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   <Button
@@ -611,50 +690,73 @@ export function VoiceCallModal() {
                     size="sm"
                     variant="outline"
                     className="text-xs h-7 rounded-full bg-background/80 hover:border-primary"
-                    onClick={() => handleUserReply('10% discount apply kar do')}
+                    onClick={() => handleUserReply('Thoda discount mil sakta hai kya?')}
                   >
-                    🎁 10% discount apply karo
+                    🎁 Thoda discount milega?
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     className="text-xs h-7 rounded-full bg-background/80 hover:border-primary"
-                    onClick={() => handleUserReply('Payment fail kyu hui thi?')}
+                    onClick={() => handleUserReply('Budget kam hai, aur discount do')}
                   >
-                    ❓ Payment fail kyu hui?
+                    📉 Aur kam karo
                   </Button>
                 </div>
               </div>
             )}
 
-            {/* Call Controls & Input Bar */}
             {callState === 'connected' && (
-              <div className="p-3 border-t bg-muted/40 flex items-center gap-2">
-                <Button
-                  size="icon"
-                  variant={isMuted ? 'destructive' : 'secondary'}
-                  className="h-9 w-9 rounded-full shrink-0"
-                  onClick={() => {
-                    const next = !isMuted;
-                    setMuted(next);
-                    if (!next) startListening();
-                  }}
-                  title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-                >
-                  {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4 text-primary" />}
-                </Button>
-
-                <form onSubmit={handleManualSubmit} className="flex-1 flex gap-2">
-                  <Input
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    placeholder="Reply or speak into mic..."
-                    className="text-xs h-9 bg-background"
-                  />
-                  <Button type="submit" size="sm" className="h-9 px-3 shrink-0" disabled={!inputText.trim() || isProcessing}>
-                    <Send className="h-3.5 w-3.5" />
+              <div className="p-3 border-t bg-muted/40 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={isListening ? 'default' : 'outline'}
+                    className={`h-9 px-3 gap-1.5 rounded-full text-xs font-medium shrink-0 ${
+                      isListening
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse'
+                        : 'border-emerald-600/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                    }`}
+                    onClick={() => {
+                      if (isListening) {
+                        setListening(false);
+                      } else {
+                        startListening();
+                      }
+                    }}
+                    title="Toggle microphone listening"
+                  >
+                    <Mic className="h-3.5 w-3.5" />
+                    <span>{isListening ? 'Listening...' : 'Tap to Speak'}</span>
                   </Button>
-                </form>
+
+                  <Button
+                    size="icon"
+                    variant={isMuted ? 'destructive' : 'secondary'}
+                    className="h-9 w-9 rounded-full shrink-0"
+                    onClick={() => {
+                      const next = !isMuted;
+                      setMuted(next);
+                      if (!next) startListening();
+                    }}
+                    title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+                  >
+                    {isMuted ? <MicOff className="h-4 w-4" /> : <Volume2 className="h-4 w-4 text-primary" />}
+                  </Button>
+
+                  <form onSubmit={handleManualSubmit} className="flex-1 flex gap-2">
+                    <Input
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      placeholder="Or type reply here..."
+                      className="text-xs h-9 bg-background"
+                    />
+                    <Button type="submit" size="sm" className="h-9 px-3 shrink-0" disabled={!inputText.trim() || isProcessing}>
+                      <Send className="h-3.5 w-3.5" />
+                    </Button>
+                  </form>
+                </div>
               </div>
             )}
           </motion.div>

@@ -4,18 +4,49 @@ const isConfigured =
   Boolean(env.SARVAM_API_KEY) &&
   !env.SARVAM_API_KEY.startsWith('dev_');
 
-export function mapSpeaker(voiceType?: string): string {
+export interface AgentPersonaInfo {
+  agentName: string;
+  agentGender: 'female' | 'male';
+  speaker: string;
+  hindiPronouns: {
+    speaking: string;
+    assist: string;
+    canDo: string;
+  };
+}
+
+export function getAgentPersonaInfo(voiceType?: string): AgentPersonaInfo {
   const v = (voiceType || '').toLowerCase();
-  if (v.includes('priya') || v.includes('raveena') || v.includes('english')) {
-    return 'priya';
+  const isFemale = v.includes('female') || v.includes('ritu') || v.includes('priya') || v.includes('aditi');
+  const isMale = !isFemale && (v.includes('male') || v.includes('shubh') || v.includes('arun') || v.includes('aarav'));
+  if (isMale) {
+    const isArun = v.includes('arun');
+    return {
+      agentName: isArun ? 'Arun' : 'Aarav',
+      agentGender: 'male',
+      speaker: isArun ? 'arun' : 'shubh',
+      hindiPronouns: {
+        speaking: 'baat kar raha hoon',
+        assist: 'aapki madad kar sakta hoon',
+        canDo: 'kar sakta hoon',
+      },
+    };
   }
-  if (v.includes('shubh') || v.includes('neural2-b') || v.includes('male')) {
-    return 'shubh';
-  }
-  if (v.includes('arun')) {
-    return 'arun';
-  }
-  return 'ritu';
+  const isPriya = v.includes('priya');
+  return {
+    agentName: isPriya ? 'Priya' : 'Aditi',
+    agentGender: 'female',
+    speaker: isPriya ? 'priya' : 'ritu',
+    hindiPronouns: {
+      speaking: 'baat kar rahi hoon',
+      assist: 'aapki madad kar sakti hoon',
+      canDo: 'kar sakti hoon',
+    },
+  };
+}
+
+export function mapSpeaker(voiceType?: string): string {
+  return getAgentPersonaInfo(voiceType).speaker;
 }
 
 export function mapLanguageCode(languageMode?: string): string {

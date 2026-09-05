@@ -27,7 +27,7 @@ export async function generateInterventionCopy(params: {
   const discountPct = Math.min(10, maxDiscount);
 
   const fallbackCopy = (): InterventionCopy => ({
-    voiceScript: `Hello ${customerName}, main Demo.pay se baat kar rahi hoon. Aapka ${productName} ka order complete nahi ho paya. Humne aapke liye ek special ${discountPct}% discount add kiya hai. Kya aap abhi payment complete karna chahenge?`,
+    voiceScript: `Hello ${customerName}, main Demo.pay recovery desk se baat kar raha hoon. Maine dekha aapka ${productName} ka order complete nahi ho paya tha. Kya main payment complete karne mein aapki koi madad kar sakta hoon?`,
     whatsappMessage: `Hi ${customerName}! 👋 Humne dekha ki aapka *${productName}* ka payment complete nahi hua. Aapke liye special *${discountPct}% off* add kiya hai! Order yahan complete karein: ${recoveryLink}`,
     emailSubject: `Special ${discountPct}% Off: Complete your order for ${productName}`,
     emailBody: `Hi ${customerName}, your payment for ${productName} was interrupted. Click the link below to resume with your exclusive ${discountPct}% discount.`,
@@ -86,7 +86,7 @@ Recovery Link: ${recoveryLink}`;
       if (cleanJson) {
         const parsed = JSON.parse(cleanJson);
         return {
-          voiceScript: parsed.voiceScript || `Hello ${customerName}, main Demo.pay se Aditi baat kar rahi hoon.`,
+          voiceScript: parsed.voiceScript || `Hello ${customerName}, main Demo.pay recovery desk se baat kar raha hoon.`,
           whatsappMessage: parsed.whatsappMessage || `Hi ${customerName}! Your checkout for ${productName} is saved: ${recoveryLink}`,
           emailSubject: parsed.emailSubject || `Complete your order for ${productName}`,
           emailBody: parsed.emailBody || `Hi ${customerName}, finish your checkout here: ${recoveryLink}`,

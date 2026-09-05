@@ -2,6 +2,7 @@ import { LlmAgent, InMemoryRunner, FunctionTool } from '@google/adk';
 import { z } from 'zod';
 import { env } from '../env';
 import { executeWithGeminiRateLimit } from '../services/geminiRateLimiter';
+import { getAgentPersonaInfo } from '../services/ttsService';
 
 const hasValidGeminiKey =
   Boolean(env.GOOGLE_API_KEY) &&
@@ -15,6 +16,7 @@ export interface VoiceSessionContext {
   amountInRs: number;
   failureMode: string;
   maxDiscountPct: number;
+  currentDiscountPct?: number;
   personaPrompt?: string;
   voiceType?: string;
   languageMode?: string;
@@ -24,6 +26,8 @@ export interface VoiceGreetingResult {
   script: string;
   discountPct: number;
   discountedPrice: number;
+  agentName: string;
+  agentGender: 'female' | 'male';
 }
 
 export interface VoiceTurnResult {
@@ -31,18 +35,22 @@ export interface VoiceTurnResult {
   isPromise: boolean;
   hoursAhead: number;
   discountAppliedPct?: number;
+  agentName: string;
 }
 
 export async function generateVoiceGreeting(context: VoiceSessionContext): Promise<VoiceGreetingResult> {
-  const initialDiscount = Math.min(10, context.maxDiscountPct || 10);
+  const persona = getAgentPersonaInfo(context.voiceType);
+  const initialDiscount = context.currentDiscountPct || 0;
   const discountedPrice = Math.round(context.amountInRs * (1 - initialDiscount / 100));
 
-  const fallbackScript = `Namaste ${context.customerName}! Main Demo.pay recovery desk se Aditi baat kar rahi hoon. Maine dekha aapka ₹${context.amountInRs.toLocaleString()} ka ${context.productName} order complete nahi ho paya. Humne aapke liye ek special ${initialDiscount}% discount activate kiya hai, jisse yeh sirf ₹${discountedPrice.toLocaleString()} ka padega. Kya aap abhi complete karna chahenge ya kal schedule karein?`;
+  const fallbackScript = `Namaste ${context.customerName}! Main Demo.pay recovery desk se ${persona.agentName} ${persona.hindiPronouns.speaking}. Maine dekha aapka ₹${context.amountInRs.toLocaleString()} ka ${context.productName} order complete nahi ho paya tha. Kya payment mein koi takleef aayi thi? Main ${persona.hindiPronouns.assist}.`;
 
   const fallbackResult: VoiceGreetingResult = {
     script: fallbackScript,
     discountPct: initialDiscount,
     discountedPrice,
+    agentName: persona.agentName,
+    agentGender: persona.agentGender,
   };
 
   if (!hasValidGeminiKey) {
@@ -54,12 +62,13 @@ export async function generateVoiceGreeting(context: VoiceSessionContext): Promi
       const agent = new LlmAgent({
         name: 'voice_recovery_greeter',
         model: 'gemini-3.5-flash-lite',
-        instruction: `You are Aditi, a warm, professional customer recovery agent for Demo.pay.
-Generate a single, natural opening sentence in Hinglish (blend of conversational Hindi and English).
-Acknowledge the interrupted checkout for ${context.productName} (₹${context.amountInRs.toLocaleString()}).
-Mention that a special ${initialDiscount}% discount is activated (discounted price: ₹${discountedPrice.toLocaleString()}).
-Ask politely whether they would like to finish now or schedule for later.
-Keep it under 35 words. Return only the spoken script, without quotes or explanations.`,
+        instruction: `You are ${persona.agentName}, a warm, professional customer recovery agent for Demo.pay speaking in natural Hinglish.
+Your gender is ${persona.agentGender}. Use ${persona.hindiPronouns.speaking} and ${persona.hindiPronouns.assist}.
+Generate a single, natural opening greeting in Hinglish.
+Acknowledge that their order for ${context.productName} (₹${context.amountInRs.toLocaleString()}) was interrupted at checkout.
+Ask politely if they faced any issue during payment and offer help.
+Do not offer a discount right now; keep it focused on understanding what went wrong.
+Keep it under 35 words. Return only the spoken script, without quotes or extra text.`,
       });
 
       const runner = new InMemoryRunner({ agent });
@@ -86,6 +95,8 @@ Keep it under 35 words. Return only the spoken script, without quotes or explana
           script: trimmed,
           discountPct: initialDiscount,
           discountedPrice,
+          agentName: persona.agentName,
+          agentGender: persona.agentGender,
         };
       }
       return fallbackResult;
@@ -102,6 +113,32 @@ export async function handleVoiceTurnWithAdk(params: {
 }): Promise<VoiceTurnResult> {
   const { context, userSpeech, history } = params;
   const lower = userSpeech.toLowerCase().trim();
+  const persona = getAgentPersonaInfo(context.voiceType);
+
+  const maxDiscount = context.maxDiscountPct || 15;
+  const currentDiscount = context.currentDiscountPct || 0;
+
+  let nextDiscount = currentDiscount;
+  const mentionsPriceOrDiscount =
+    lower.includes('discount') ||
+    lower.includes('price') ||
+    lower.includes('mehenga') ||
+    lower.includes('expensive') ||
+    lower.includes('kam') ||
+    lower.includes('budget') ||
+    lower.includes('cost') ||
+    lower.includes('jyada') ||
+    lower.includes('nahi lena');
+
+  if (mentionsPriceOrDiscount) {
+    if (currentDiscount === 0) {
+      nextDiscount = Math.min(5, maxDiscount);
+    } else if (currentDiscount < 10) {
+      nextDiscount = Math.min(10, maxDiscount);
+    } else if (currentDiscount < maxDiscount) {
+      nextDiscount = maxDiscount;
+    }
+  }
 
   let isPromiseDetected = false;
   let detectedHoursAhead = 24;
@@ -130,43 +167,71 @@ export async function handleVoiceTurnWithAdk(params: {
   const fallbackTurnResult = (): VoiceTurnResult => {
     if (isPromiseDetected) {
       const timeLabel = detectedHoursAhead === 24 ? 'kal' : detectedHoursAhead === 48 ? 'Monday tak' : 'aaj shaam tak';
+      const discNote = nextDiscount > 0 ? ` aur ${nextDiscount}% discount` : '';
       return {
-        aiReply: `Bahut badhiya! Maine aapka order aur 10% discount ${timeLabel} ke liye lock kar diya hai. Direct payment link aapko WhatsApp par bhej diya gaya hai. Thank you so much!`,
+        aiReply: `Bahut badhiya! Maine aapka order${discNote} ${timeLabel} ke liye reserve kar diya hai. Link WhatsApp par bhej diya hai. Thank you so much!`,
         isPromise: true,
         hoursAhead: detectedHoursAhead,
-        discountAppliedPct: 10,
+        discountAppliedPct: nextDiscount > 0 ? nextDiscount : undefined,
+        agentName: persona.agentName,
       };
     }
 
-    if (lower.includes('discount') || lower.includes('price') || lower.includes('mehenga') || lower.includes('kam')) {
+    if (mentionsPriceOrDiscount) {
+      if (nextDiscount > currentDiscount) {
+        return {
+          aiReply: `Main samajh sakta hoon. Aapke liye maine special ${nextDiscount}% discount apply kiya hai. Kya main direct payment link bhej doon?`,
+          isPromise: false,
+          hoursAhead: 0,
+          discountAppliedPct: nextDiscount,
+          agentName: persona.agentName,
+        };
+      }
       return {
-        aiReply: `Main aapki baat samajh sakti hoon. Isiliye humne turant 10% instant discount apply kar diya hai! Kya main payment link abhi bhej doon?`,
+        aiReply: `Maine pehle hi aapke liye maximum ${maxDiscount}% discount lock kiya hai. Isse kam possible nahi ho payega. Kya main link share kar doon?`,
         isPromise: false,
         hoursAhead: 0,
-        discountAppliedPct: 10,
+        discountAppliedPct: maxDiscount,
+        agentName: persona.agentName,
       };
     }
 
     if (lower.includes('fail') || lower.includes('error') || lower.includes('kyu') || lower.includes('why')) {
       return {
-        aiReply: `Aapke bank server ke timeout ki wajah se payment pause ho gayi thi. Aapka amount safe hai. Humne direct 1-click UPI channel ready kar diya hai. Kya main link send kar doon?`,
+        aiReply: `Aapke bank server ke temporary timeout ki wajah se payment pause hui thi. Aapka amount safe hai. Humne 1-click UPI checkout ready kiya hai, kya link send kar doon?`,
         isPromise: false,
         hoursAhead: 0,
+        discountAppliedPct: currentDiscount > 0 ? currentDiscount : undefined,
+        agentName: persona.agentName,
       };
     }
 
     if (lower.includes('cancel') || lower.includes('nahi') || lower.includes('no')) {
+      if (currentDiscount < maxDiscount) {
+        const stepped = Math.min(currentDiscount + 5, maxDiscount);
+        return {
+          aiReply: `Ek minute rukiye! Agar aap abhi complete karte hain toh main turant ${stepped}% extra discount de ${persona.hindiPronouns.canDo}. Kya yeh chalega?`,
+          isPromise: false,
+          hoursAhead: 0,
+          discountAppliedPct: stepped,
+          agentName: persona.agentName,
+        };
+      }
       return {
-        aiReply: `Koi baat nahi, main samajh sakti hoon. Maine yeh cart aapke liye save kar di hai. Have a wonderful day!`,
+        aiReply: `Koi baat nahi, main samajh ${persona.agentGender === 'male' ? 'sakta' : 'sakti'} hoon. Maine aapka cart save kar diya hai. Aapka din shubh ho!`,
         isPromise: false,
         hoursAhead: 0,
+        discountAppliedPct: currentDiscount > 0 ? currentDiscount : undefined,
+        agentName: persona.agentName,
       };
     }
 
     return {
-      aiReply: `Ji bilkul! Maine updated discount ke saath payment link aapke phone par send kar diya hai. Aap wahan se aasaani se complete kar sakte hain.`,
+      aiReply: `Ji bilkul! Maine payment link ready kar diya hai. Aap wahan se aasaani se apna order complete ${persona.hindiPronouns.canDo}.`,
       isPromise: false,
       hoursAhead: 0,
+      discountAppliedPct: currentDiscount > 0 ? currentDiscount : undefined,
+      agentName: persona.agentName,
     };
   };
 
@@ -176,6 +241,8 @@ export async function handleVoiceTurnWithAdk(params: {
 
   return executeWithGeminiRateLimit(
     async () => {
+      let negotiatedDiscount = nextDiscount;
+
       const recordPromiseTool = new FunctionTool({
         name: 'record_promise_to_pay',
         description: 'Record when a customer agrees to pay later or asks for a reminder at a specific time.',
@@ -190,6 +257,19 @@ export async function handleVoiceTurnWithAdk(params: {
         },
       });
 
+      const applyDiscountTool = new FunctionTool({
+        name: 'apply_stepwise_discount',
+        description: 'Apply an incremental discount when the customer hesitates or complains about price.',
+        parameters: z.object({
+          discountPct: z.number().describe(`The discount percentage to offer. Must not exceed ${maxDiscount}%.`),
+          rationale: z.string().describe('Why this discount is being offered'),
+        }),
+        execute: async (args) => {
+          negotiatedDiscount = Math.min(Math.max(args.discountPct, currentDiscount), maxDiscount);
+          return { status: 'discount_approved', discountPct: negotiatedDiscount };
+        },
+      });
+
       const conversationTranscript = history
         .slice(-6)
         .map((m) => `${m.sender === 'user' ? 'Customer' : 'Agent'}: ${m.text}`)
@@ -198,22 +278,24 @@ export async function handleVoiceTurnWithAdk(params: {
       const agent = new LlmAgent({
         name: 'voice_recovery_agent',
         model: 'gemini-3.5-flash-lite',
-        instruction: `You are Aditi, an empathetic AI recovery assistant for Demo.pay speaking in natural Hinglish.
+        instruction: `You are ${persona.agentName}, an empathetic ${persona.agentGender} AI recovery assistant for Demo.pay speaking in natural Hinglish.
+Grammar rule: use ${persona.agentGender === 'male' ? 'male phrasing (e.g. bol raha hoon, kar sakta hoon)' : 'female phrasing (e.g. bol rahi hoon, kar sakti hoon)'}.
 Order Details:
 - Customer: ${context.customerName}
 - Product: ${context.productName}
-- Amount: ₹${context.amountInRs.toLocaleString()}
+- Original Amount: ₹${context.amountInRs.toLocaleString()}
 - Failure reason: ${context.failureMode}
-- Max discount allowed: ${context.maxDiscountPct}%
+- Current discount offered: ${currentDiscount}%
+- Maximum discount allowed: ${maxDiscount}%
 ${context.personaPrompt ? `- Merchant instructions: ${context.personaPrompt}` : ''}
 
-Your goals:
-1. Address the customer's comment empathetically.
-2. If they mention paying tomorrow, later, in evening, or next week, call the record_promise_to_pay tool and confirm politely that their order and discount are reserved for that time.
-3. If they hesitate or ask for a discount, offer up to ${Math.min(15, context.maxDiscountPct)}% discount.
-4. If they ask why it failed, reassure them that their money is safe and the bank network timed out.
-5. Keep your response concise (1-2 sentences max, conversational Hinglish), friendly, and direct.`,
-        tools: [recordPromiseTool],
+Negotiation Guidelines:
+1. Never jump straight to the maximum discount.
+2. If customer complains about price or hesitates, use apply_stepwise_discount to offer an incremental discount (e.g. 5% first, then 10%, up to ${maxDiscount}% max).
+3. If customer says they will pay later (tomorrow, evening, Monday), call record_promise_to_pay and confirm that their order and discount are reserved.
+4. If customer asks why payment failed, explain that their bank server timed out and their money is completely safe.
+5. Keep your answer strictly under 2 spoken sentences in friendly, natural conversational Hinglish.`,
+        tools: [recordPromiseTool, applyDiscountTool],
       });
 
       const runner = new InMemoryRunner({ agent });
@@ -245,7 +327,8 @@ Respond appropriately in 1-2 spoken sentences.`;
           aiReply: trimmed,
           isPromise: isPromiseDetected,
           hoursAhead: detectedHoursAhead,
-          discountAppliedPct: isPromiseDetected ? 10 : undefined,
+          discountAppliedPct: negotiatedDiscount > 0 ? negotiatedDiscount : undefined,
+          agentName: persona.agentName,
         };
       }
       return fallbackTurnResult();

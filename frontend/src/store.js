@@ -131,17 +131,22 @@ export const useVoiceCallStore = create((set) => ({
       promiseResult: null,
     }),
 
-  addTranscript: (sender, text) =>
+  addTranscript: (sender, text, customId) =>
     set((state) => ({
       transcript: [
         ...state.transcript,
         {
-          id: Math.random().toString(36).slice(2, 7),
+          id: customId || Math.random().toString(36).slice(2, 7),
           sender,
           text,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ],
+    })),
+
+  updateTranscriptText: (id, text) =>
+    set((state) => ({
+      transcript: state.transcript.map(m => m.id === id ? { ...m, text } : m),
     })),
 
   setMuted: (isMuted) => set({ isMuted }),
