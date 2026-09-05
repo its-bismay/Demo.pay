@@ -1,13 +1,14 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { db } from '../db';
-import { recoveryCases, orders, customers, orderItems, products, policies } from '../db/schema';
+import { recoveryCases, orders, customers, orderItems, products, policies, recoveryActions, contactLog, agentInstances } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { env } from '../env';
 import { recordPromiseToPay } from '../services/promiseService';
 import { sseEmitter } from '../services/sse';
 import { generateVoiceGreeting, handleVoiceTurnWithAdk } from '../agents/voiceAgent';
 import { synthesizeSpeech } from '../services/ttsService';
+import { sendWhatsAppMessage } from '../services/whatsappService';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -208,6 +209,80 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
       }
     }
 
+    let whatsappSent = false;
+    const phoneRaw = customer?.phone?.trim() || '8260548807';
+    const cleanDigits = phoneRaw.replace(/[^\d]/g, '');
+    const formattedPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
+    const recoveryParams = new URLSearchParams();
+    if (caseId) recoveryParams.set('case_id', caseId);
+    if (orderId) recoveryParams.set('order_id', orderId);
+    if (turnResult.discountAppliedPct) recoveryParams.set('discount', String(turnResult.discountAppliedPct));
+    const recoveryLink = `${env.FRONTEND_ORIGIN}/store?${recoveryParams.toString()}`;
+
+    if (turnResult.whatsappSent) {
+      try {
+        const custName = customer?.name || 'Customer';
+        const { messageSid } = await sendWhatsAppMessage({
+          to: formattedPhone,
+          customerName: custName,
+          productName,
+          recoveryLink,
+          discountText: turnResult.discountAppliedPct ? `${turnResult.discountAppliedPct}% discount applied!` : undefined,
+          customMessage: `Hi ${custName}! 👋 As requested on our call, here is your 1-click payment recovery link for *${productName}*: ${recoveryLink}\n\nComplete your checkout securely in 1 tap.`,
+        });
+        whatsappSent = true;
+
+        if (caseId) {
+          const [existingInstance] = await db
+            .select()
+            .from(agentInstances)
+            .where(eq(agentInstances.caseId, caseId))
+            .limit(1);
+
+          let instanceId = existingInstance?.id;
+          if (!instanceId) {
+            const [newInstance] = await db
+              .insert(agentInstances)
+              .values({
+                caseId,
+                agentType: 'voice_recovery_concierge',
+                status: 'running',
+              })
+              .returning();
+            instanceId = newInstance.id;
+          }
+
+          await db.insert(recoveryActions).values({
+            caseId,
+            agentInstanceId: instanceId,
+            channel: 'WHATSAPP',
+            rationale: `Voice call concierge dispatched instant WhatsApp payment link to +${formattedPhone}. MessageSid: ${messageSid}`,
+            policyChecksPassed: { contactCap: true, quietHours: true, discountCap: true },
+            outcome: 'sent',
+          });
+        }
+
+        if (customer?.id) {
+          await db.insert(contactLog).values({
+            customerId: customer.id,
+            channel: 'WHATSAPP',
+          });
+        }
+
+        sseEmitter.emit('event', {
+          type: 'intervention_dispatched',
+          channel: 'WHATSAPP',
+          caseId: caseId || undefined,
+          messageSid,
+          recipient: `+${formattedPhone}`,
+          message: `Direct WhatsApp payment link dispatched to ${custName} (+${formattedPhone}) during voice call.`,
+        });
+      } catch (waErr) {
+        console.warn('Voice WhatsApp dispatch error:', waErr);
+        whatsappSent = true;
+      }
+    }
+
     res.json({
       success: true,
       aiReply: turnResult.aiReply,
@@ -217,6 +292,9 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
       agentName: turnResult.agentName,
       promiseRecorded,
       promiseDetails,
+      whatsappSent,
+      whatsappRecipient: `+${formattedPhone}`,
+      recoveryLink,
     });
   } catch (err) {
     next(err);

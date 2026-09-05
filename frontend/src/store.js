@@ -93,7 +93,7 @@ export const useVoiceCallStore = create((set, get) => ({
 
   triggerCall: (data) => {
     const cur = get();
-    if (cur.isOpen && (cur.callState === 'connected' || cur.callState === 'ringing')) {
+    if (cur.isOpen) {
       return;
     }
     set({

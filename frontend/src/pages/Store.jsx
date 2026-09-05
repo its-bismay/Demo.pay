@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall, LogOut, User, Eye, EyeOff, Lock, Mail, Trash2 } from 'lucide-react';
+import { ShoppingBag, Search, AlertCircle, Loader2, CreditCard, Smartphone, Phone, PhoneCall, LogOut, User, Eye, EyeOff, Lock, Mail, Trash2, CheckCircle2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -627,20 +627,38 @@ function CheckoutDrawer() {
           paymentMethod,
         }),
       });
-      setSimulatedAction({ type: scenario, desc });
-      addEvent({
-        id: Date.now().toString(),
-        type: id === 'success' ? 'success' : 'failure',
-        message: id === 'success' ? `Payment captured for ${customer?.name}.` : `Payment failed for ${customer?.name} due to ${scenario}.`,
-      });
-      if (id !== 'success') {
+
+      if (id === 'success') {
+        if (autoCallTimerRef.current) {
+          clearTimeout(autoCallTimerRef.current);
+          autoCallTimerRef.current = null;
+        }
+        const cur = useVoiceCallStore.getState();
+        if (cur.isOpen) {
+          cur.closeModal();
+        }
+        useCartStore.getState().clearCart();
+        setSimulatedAction({ type: scenario, desc, id: 'success' });
+        addEvent({
+          id: Date.now().toString(),
+          type: 'success',
+          message: `Payment captured for ${customer?.name || 'Customer'}. Order confirmation sent to ${customer?.email || 'email'}.`,
+        });
+      } else {
+        setSimulatedAction({ type: scenario, desc, id });
+        addEvent({
+          id: Date.now().toString(),
+          type: 'failure',
+          message: `Payment failed for ${customer?.name || 'Customer'} due to ${scenario}. Initiating AI recovery.`,
+        });
         updateKpis({ atRisk: cartTotal, activeInterventions: 1 });
         if (autoCallTimerRef.current) {
           clearTimeout(autoCallTimerRef.current);
         }
         autoCallTimerRef.current = setTimeout(() => {
           const cur = useVoiceCallStore.getState();
-          if (!cur.isOpen || cur.callState === 'idle') {
+          if (!cur.isOpen) {
+            setSimulatedAction(null);
             startVoiceCall(orderId);
           }
         }, 3000);
@@ -772,7 +790,9 @@ function CheckoutDrawer() {
       <AlertDialog open={!!simulatedAction} onOpenChange={(open) => !open && closeConfirmation()}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Simulation Triggered</AlertDialogTitle>
+            <AlertDialogTitle>
+              {simulatedAction?.id === 'success' ? 'Payment Confirmed' : 'Simulation Triggered'}
+            </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="mt-2 space-y-4">
                 <p className="text-foreground font-medium">Scenario: {simulatedAction?.type}</p>
@@ -780,28 +800,43 @@ function CheckoutDrawer() {
                 <div className="bg-muted p-3 rounded-md text-xs font-mono text-muted-foreground">
                   Webhook payload injected into the event queue successfully.
                 </div>
-                <div className="bg-primary/10 border border-primary/20 p-3 rounded-md space-y-2">
-                  <p className="text-primary font-medium animate-pulse text-xs">
-                    🔔 Autonomous Voice Agent is calling your browser now...
-                  </p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2 text-xs"
-                    onClick={() => {
-                      const oid = useCartStore.getState().currentOrderId;
-                      if (autoCallTimerRef.current) {
-                        clearTimeout(autoCallTimerRef.current);
-                        autoCallTimerRef.current = null;
-                      }
-                      closeConfirmation();
-                      startVoiceCall(oid);
-                    }}
-                  >
-                    <PhoneCall className="h-3.5 w-3.5 animate-bounce" />
-                    Answer AI Recovery Call
-                  </Button>
-                </div>
+                {simulatedAction?.id === 'success' ? (
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-xl space-y-2 text-center">
+                    <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto mb-1">
+                      <CheckCircle2 className="h-5 w-5" />
+                    </div>
+                    <h4 className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">Payment Captured Successfully!</h4>
+                    <p className="text-xs text-muted-foreground">
+                      An order confirmation email has been sent to <strong>{customer?.email || 'your email'}</strong>.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground italic">
+                      No phone call or recovery intervention will be made.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-primary/10 border border-primary/20 p-3 rounded-md space-y-2">
+                    <p className="text-primary font-medium animate-pulse text-xs">
+                      🔔 Autonomous Voice Agent is calling your browser now...
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2 text-xs"
+                      onClick={() => {
+                        const oid = useCartStore.getState().currentOrderId;
+                        if (autoCallTimerRef.current) {
+                          clearTimeout(autoCallTimerRef.current);
+                          autoCallTimerRef.current = null;
+                        }
+                        closeConfirmation();
+                        startVoiceCall(oid);
+                      }}
+                    >
+                      <PhoneCall className="h-3.5 w-3.5 animate-bounce" />
+                      Answer AI Recovery Call
+                    </Button>
+                  </div>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -156,6 +156,9 @@ router.post(
               contact: customer?.phone ?? '+919876543210',
               error_code: errorCode,
               error_description: errorDesc,
+              notes: {
+                orderId: order.id,
+              },
             },
           },
         },

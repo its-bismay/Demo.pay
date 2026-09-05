@@ -95,6 +95,7 @@ export function VoiceCallModal() {
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [hasVoiceDetected, setHasVoiceDetected] = useState(false);
   const [statusLog, setStatusLog] = useState('Connecting audio...');
+  const [whatsappInfo, setWhatsappInfo] = useState(null);
 
   const ringtoneRef = useRef(null);
   const transcriptContainerRef = useRef(null);
@@ -519,6 +520,7 @@ export function VoiceCallModal() {
   }, [callState]);
 
   const teardownCall = () => {
+    setWhatsappInfo(null);
     if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
     if (audioRef.current) { try { audioRef.current.pause(); } catch (e) {} audioRef.current = null; }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -582,6 +584,18 @@ export function VoiceCallModal() {
             id: Date.now().toString(),
             type: 'promise_created',
             message: `Voice Agent (${agentName}) secured promise to pay from ${callData?.customerName || 'customer'} (${label}).`,
+          });
+          updateKpis({ activeInterventions: 1 });
+        }
+        if (data.whatsappSent) {
+          setWhatsappInfo({
+            recipient: data.whatsappRecipient || '+91 8260548807',
+            recoveryLink: data.recoveryLink || window.location.origin + '/store',
+          });
+          addEvent({
+            id: Date.now().toString(),
+            type: 'intervention_dispatched',
+            message: `Voice Agent sent WhatsApp recovery link to ${data.whatsappRecipient || '+91 8260548807'}.`,
           });
           updateKpis({ activeInterventions: 1 });
         }
@@ -778,6 +792,23 @@ export function VoiceCallModal() {
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 <span className="font-semibold">Promise Recorded:</span>
                 <span>{promiseResult.label}.</span>
+              </div>
+            )}
+
+            {whatsappInfo && (
+              <div className="flex-none bg-emerald-500/10 border-b border-emerald-500/30 px-4 py-2.5 flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400">
+                <div className="flex items-center gap-2 truncate">
+                  <MessageSquare className="h-4 w-4 shrink-0 text-emerald-500" />
+                  <span className="font-semibold">WhatsApp Link Sent to {whatsappInfo.recipient}</span>
+                </div>
+                <a
+                  href={`https://wa.me/${whatsappInfo.recipient.replace(/[^\d]/g, '')}?text=${encodeURIComponent(`Hi! Here is your Demo.pay checkout recovery link: ${whatsappInfo.recoveryLink}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-bold underline text-emerald-700 dark:text-emerald-300 hover:text-emerald-500 shrink-0 ml-2"
+                >
+                  Open WhatsApp →
+                </a>
               </div>
             )}
 

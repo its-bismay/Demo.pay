@@ -36,6 +36,7 @@ export interface VoiceTurnResult {
   hoursAhead: number;
   discountAppliedPct?: number;
   agentName: string;
+  whatsappSent?: boolean;
 }
 
 export async function generateVoiceGreeting(context: VoiceSessionContext): Promise<VoiceGreetingResult> {
@@ -165,6 +166,22 @@ export async function handleVoiceTurnWithAdk(params: {
   }
 
   const fallbackTurnResult = (): VoiceTurnResult => {
+    if (
+      lower.includes('whatsapp') ||
+      lower.includes('whats app') ||
+      lower.includes('direct link') ||
+      (lower.includes('link') && (lower.includes('bhej') || lower.includes('send') || lower.includes('share') || lower.includes('number')))
+    ) {
+      return {
+        aiReply: `Ji bilkul! Maine payment link aapke WhatsApp number par direct bhej diya hai. Aap wahan se turant 1 tap mein apna order complete ${persona.hindiPronouns.canDo}.`,
+        isPromise: false,
+        hoursAhead: 0,
+        discountAppliedPct: currentDiscount > 0 ? currentDiscount : undefined,
+        agentName: persona.agentName,
+        whatsappSent: true,
+      };
+    }
+
     if (isPromiseDetected) {
       const timeLabel = detectedHoursAhead === 24 ? 'kal' : detectedHoursAhead === 48 ? 'Monday tak' : 'aaj shaam tak';
       const discNote = nextDiscount > 0 ? ` aur ${nextDiscount}% discount` : '';
@@ -174,6 +191,7 @@ export async function handleVoiceTurnWithAdk(params: {
         hoursAhead: detectedHoursAhead,
         discountAppliedPct: nextDiscount > 0 ? nextDiscount : undefined,
         agentName: persona.agentName,
+        whatsappSent: true,
       };
     }
 
@@ -242,6 +260,11 @@ export async function handleVoiceTurnWithAdk(params: {
   return executeWithGeminiRateLimit(
     async () => {
       let negotiatedDiscount = nextDiscount;
+      let isWhatsAppRequested =
+        lower.includes('whatsapp') ||
+        lower.includes('whats app') ||
+        lower.includes('direct link') ||
+        (lower.includes('link') && (lower.includes('bhej') || lower.includes('send') || lower.includes('number')));
 
       const recordPromiseTool = new FunctionTool({
         name: 'record_promise_to_pay',
@@ -270,6 +293,18 @@ export async function handleVoiceTurnWithAdk(params: {
         },
       });
 
+      const sendWhatsAppTool = new FunctionTool({
+        name: 'send_whatsapp_payment_link',
+        description: 'Send the 1-click checkout recovery payment link directly to the customer via WhatsApp when customer asks for the link on WhatsApp or agrees to complete payment via WhatsApp.',
+        parameters: z.object({
+          reason: z.string().optional().describe('Why customer requested link on WhatsApp'),
+        }),
+        execute: async () => {
+          isWhatsAppRequested = true;
+          return { status: 'sent', message: 'Payment link sent to customer WhatsApp number.' };
+        },
+      });
+
       const conversationTranscript = history
         .slice(-6)
         .map((m) => `${m.sender === 'user' ? 'Customer' : 'Agent'}: ${m.text}`)
@@ -293,9 +328,10 @@ Negotiation Guidelines:
 1. Never jump straight to the maximum discount.
 2. If customer complains about price or hesitates, use apply_stepwise_discount to offer an incremental discount (e.g. 5% first, then 10%, up to ${maxDiscount}% max).
 3. If customer says they will pay later (tomorrow, evening, Monday), call record_promise_to_pay and confirm that their order and discount are reserved.
-4. If customer asks why payment failed, explain that their bank server timed out and their money is completely safe.
-5. Keep your answer strictly under 2 spoken sentences in friendly, natural conversational Hinglish.`,
-        tools: [recordPromiseTool, applyDiscountTool],
+4. If customer asks for the direct link to be sent to their WhatsApp number (e.g. "whatsapp par link bhej do", "send me the link on whatsapp", "send direct link to my whatsapp number"), call send_whatsapp_payment_link and immediately reassure them in natural Hinglish that you have sent the link directly to their WhatsApp number.
+5. If customer asks why payment failed, explain that their bank server timed out and their money is completely safe.
+6. Keep your answer strictly under 2 spoken sentences in friendly, natural conversational Hinglish.`,
+        tools: [recordPromiseTool, applyDiscountTool, sendWhatsAppTool],
       });
 
       const runner = new InMemoryRunner({ agent });
@@ -329,6 +365,7 @@ Respond appropriately in 1-2 spoken sentences.`;
           hoursAhead: detectedHoursAhead,
           discountAppliedPct: negotiatedDiscount > 0 ? negotiatedDiscount : undefined,
           agentName: persona.agentName,
+          whatsappSent: isWhatsAppRequested,
         };
       }
       return fallbackTurnResult();
