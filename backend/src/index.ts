@@ -12,7 +12,7 @@ const startServer = async (): Promise<void> => {
     logger.info('✅ Database connected');
 
     const server = app.listen(Number(env.PORT), '0.0.0.0', () => {
-      logger.info(`🚀 Server running on http://localhost:${env.PORT}`);
+      logger.info(`🚀 Demo.pay Server running on http://localhost:${env.PORT}`);
     });
 
     const shutDownServer = async (signal: string): Promise<void> => {

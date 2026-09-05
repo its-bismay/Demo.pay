@@ -96,11 +96,11 @@ export function VoiceCallModal() {
   const [hasVoiceDetected, setHasVoiceDetected] = useState(false);
   const [statusLog, setStatusLog] = useState('Connecting audio...');
   const [whatsappInfo, setWhatsappInfo] = useState(null);
-
   const ringtoneRef = useRef(null);
   const transcriptContainerRef = useRef(null);
   const audioRef = useRef(null);
   const fallbackTimerRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   const micStreamRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -250,6 +250,13 @@ export function VoiceCallModal() {
       return;
     }
 
+    if (callStateRef.current !== 'connected') return;
+
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch (e) {}
+    }
+    abortControllerRef.current = new AbortController();
+
     setRecordingState('sending');
     setListening(false);
     setStatusLog(`Uploading voice (${Math.round(blob.size / 1024)} KB)...`);
@@ -261,9 +268,14 @@ export function VoiceCallModal() {
       const res = await fetch(`${baseUrl}/api/voice/stt`, {
         method: 'POST',
         body: form,
+        signal: abortControllerRef.current.signal,
       });
 
+      if (callStateRef.current !== 'connected') return;
+
       const data = await res.json();
+      if (callStateRef.current !== 'connected') return;
+
       if (res.ok && data.success && data.transcript?.trim()) {
         const recognized = data.transcript.trim();
         setStatusLog(`Heard: "${recognized}"`);
@@ -275,6 +287,7 @@ export function VoiceCallModal() {
         }
       }
     } catch (err) {
+      if (callStateRef.current !== 'connected') return;
       setStatusLog(`Network error: ${err.message}`);
       if (callStateRef.current === 'connected' && !isSpeakingRef.current && !isProcessingRef.current && !isMutedRef.current) {
         startRecording();
@@ -446,8 +459,14 @@ export function VoiceCallModal() {
   };
 
   const speakText = async (text) => {
+    if (callStateRef.current !== 'connected') return;
+
     if (audioRef.current) {
-      try { audioRef.current.pause(); audioRef.current.currentTime = 0; } catch (e) {}
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        audioRef.current.src = '';
+      } catch (e) {}
       audioRef.current = null;
     }
     if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
@@ -486,28 +505,55 @@ export function VoiceCallModal() {
           voiceType: callData?.voiceType || (isMale ? 'shubh' : 'ritu'),
           languageMode: callData?.languageMode || 'Hinglish',
         }),
+        signal: abortControllerRef.current?.signal,
       });
+
+      if (callStateRef.current !== 'connected') {
+        onDone();
+        return;
+      }
 
       if (ttsRes.ok && ttsRes.headers.get('content-type')?.includes('audio')) {
         const blob = await ttsRes.blob();
+        if (callStateRef.current !== 'connected') {
+          onDone();
+          return;
+        }
+
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
         audioRef.current = audio;
         audio.onplay = () => {
+          if (callStateRef.current !== 'connected') {
+            try { audio.pause(); audio.src = ''; } catch (e) {}
+            return;
+          }
           isSpeakingRef.current = true;
           setSpeaking(true);
           streamWordsIntoTranscript(text, audio.duration || 3);
         };
         audio.onended = () => { URL.revokeObjectURL(url); onDone(); };
         audio.onerror = () => { URL.revokeObjectURL(url); onDone(); };
-        audio.play().catch(() => {
+
+        if (callStateRef.current === 'connected') {
+          audio.play().catch(() => {
+            onDone();
+          });
+        } else {
+          URL.revokeObjectURL(url);
           onDone();
-        });
+        }
         return;
       }
-    } catch (err) {}
+    } catch (err) {
+      if (callStateRef.current !== 'connected') {
+        return;
+      }
+    }
 
-    addTranscript('agent', text);
+    if (callStateRef.current === 'connected') {
+      addTranscript('agent', text);
+    }
     onDone();
   };
 
@@ -515,15 +561,43 @@ export function VoiceCallModal() {
     if (callState === 'connected' && callData) {
       const greeting = callData.script ||
         `Namaste ${callData.customerName || 'Customer'}! Main Demo.pay recovery desk se ${agentName} baat kar ${agentGender === 'male' ? 'raha' : 'rahi'} hoon. Maine dekha aapka payment checkout par ruk gaya tha. Kya payment mein koi takleef aayi thi?`;
-      setTimeout(() => speakText(greeting), 400);
+      setTimeout(() => {
+        if (callStateRef.current === 'connected') {
+          speakText(greeting);
+        }
+      }, 400);
     }
   }, [callState]);
 
   const teardownCall = () => {
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch (e) {}
+      abortControllerRef.current = null;
+    }
     setWhatsappInfo(null);
-    if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
-    if (audioRef.current) { try { audioRef.current.pause(); } catch (e) {} audioRef.current = null; }
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        audioRef.current.src = '';
+        audioRef.current.load();
+      } catch (e) {}
+      audioRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    isSpeakingRef.current = false;
+    isProcessingRef.current = false;
+    isRecordingRef.current = false;
+    setSpeaking(false);
+    setIsProcessing(false);
+    setListening(false);
+    setRecordingState('idle');
     stopRecordingAndSend();
     stopWave();
     if (micStreamRef.current) {
@@ -538,7 +612,7 @@ export function VoiceCallModal() {
 
   const handleEndCall = () => {
     teardownCall();
-    endCall();
+    closeModal();
   };
 
   const handleCloseModal = () => {
@@ -548,12 +622,19 @@ export function VoiceCallModal() {
 
   const handleUserReply = async (userText) => {
     if (!userText?.trim()) return;
+    if (callStateRef.current !== 'connected') return;
+
     stopRecordingAndSend();
     setRecordingState('idle');
     setListening(false);
     isProcessingRef.current = true;
     setIsProcessing(true);
     addTranscript('user', userText);
+
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch (e) {}
+    }
+    abortControllerRef.current = new AbortController();
 
     try {
       const baseUrl = getBaseUrl();
@@ -567,15 +648,23 @@ export function VoiceCallModal() {
           conversationHistory: [...transcript, { sender: 'user', text: userText }],
           currentDiscount,
         }),
+        signal: abortControllerRef.current.signal,
       });
+
+      if (callStateRef.current !== 'connected') return;
+
       const data = await res.json();
+      if (callStateRef.current !== 'connected') return;
+
       isProcessingRef.current = false;
       setIsProcessing(false);
       if (data.success && data.aiReply) {
         if (data.discountAppliedPct && data.discountAppliedPct > currentDiscount) {
           setCurrentDiscount(data.discountAppliedPct);
         }
-        speakText(data.aiReply);
+        if (callStateRef.current === 'connected') {
+          speakText(data.aiReply);
+        }
         if (data.promiseRecorded) {
           const hours = data.hoursAhead || 24;
           const label = hours === 24 ? 'Tomorrow (+24h)' : hours === 48 ? 'Monday (+48h)' : 'Later today (+6h)';
@@ -587,20 +676,27 @@ export function VoiceCallModal() {
           });
           updateKpis({ activeInterventions: 1 });
         }
-        if (data.whatsappSent) {
+        if (data.whatsappSent !== undefined) {
           setWhatsappInfo({
+            sent: Boolean(data.whatsappSent),
+            error: data.whatsappError,
             recipient: data.whatsappRecipient || '+91 8260548807',
             recoveryLink: data.recoveryLink || window.location.origin + '/store',
           });
           addEvent({
             id: Date.now().toString(),
-            type: 'intervention_dispatched',
-            message: `Voice Agent sent WhatsApp recovery link to ${data.whatsappRecipient || '+91 8260548807'}.`,
+            type: data.whatsappSent ? 'intervention_dispatched' : 'intervention_failed',
+            message: data.whatsappSent
+              ? `Voice Agent sent direct WhatsApp recovery link to ${data.whatsappRecipient || '+91 8260548807'}.`
+              : `WhatsApp dispatch to ${data.whatsappRecipient || '+91 8260548807'} failed: ${data.whatsappError || 'Meta token expired'}`,
           });
-          updateKpis({ activeInterventions: 1 });
+          if (data.whatsappSent) {
+            updateKpis({ activeInterventions: 1 });
+          }
         }
       }
     } catch (err) {
+      if (callStateRef.current !== 'connected') return;
       isProcessingRef.current = false;
       setIsProcessing(false);
       speakText('Maine aapka request note kar liya hai. Thank you!');
@@ -796,19 +892,19 @@ export function VoiceCallModal() {
             )}
 
             {whatsappInfo && (
-              <div className="flex-none bg-emerald-500/10 border-b border-emerald-500/30 px-4 py-2.5 flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400">
-                <div className="flex items-center gap-2 truncate">
-                  <MessageSquare className="h-4 w-4 shrink-0 text-emerald-500" />
-                  <span className="font-semibold">WhatsApp Link Sent to {whatsappInfo.recipient}</span>
+              <div className={`flex-none px-4 py-2 flex items-center justify-between text-xs border-b ${
+                whatsappInfo.sent
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 shrink-0" />
+                  {whatsappInfo.sent ? (
+                    <span>Direct payment link automatically sent to WhatsApp <strong>{whatsappInfo.recipient}</strong></span>
+                  ) : (
+                    <span>WhatsApp dispatch failed: Meta token expired. Please paste fresh token in backend/.env</span>
+                  )}
                 </div>
-                <a
-                  href={`https://wa.me/${whatsappInfo.recipient.replace(/[^\d]/g, '')}?text=${encodeURIComponent(`Hi! Here is your Demo.pay checkout recovery link: ${whatsappInfo.recoveryLink}`)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-bold underline text-emerald-700 dark:text-emerald-300 hover:text-emerald-500 shrink-0 ml-2"
-                >
-                  Open WhatsApp →
-                </a>
               </div>
             )}
 

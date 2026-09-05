@@ -210,6 +210,7 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
     }
 
     let whatsappSent = false;
+    let whatsappError: string | undefined = undefined;
     const phoneRaw = customer?.phone?.trim() || '8260548807';
     const cleanDigits = phoneRaw.replace(/[^\d]/g, '');
     const formattedPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
@@ -222,7 +223,7 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
     if (turnResult.whatsappSent) {
       try {
         const custName = customer?.name || 'Customer';
-        const { messageSid } = await sendWhatsAppMessage({
+        const waRes = await sendWhatsAppMessage({
           to: formattedPhone,
           customerName: custName,
           productName,
@@ -230,7 +231,9 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
           discountText: turnResult.discountAppliedPct ? `${turnResult.discountAppliedPct}% discount applied!` : undefined,
           customMessage: `Hi ${custName}! 👋 As requested on our call, here is your 1-click payment recovery link for *${productName}*: ${recoveryLink}\n\nComplete your checkout securely in 1 tap.`,
         });
-        whatsappSent = true;
+        whatsappSent = waRes.success;
+        whatsappError = waRes.error;
+        const messageSid = waRes.messageSid;
 
         if (caseId) {
           const [existingInstance] = await db
@@ -256,13 +259,13 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
             caseId,
             agentInstanceId: instanceId,
             channel: 'WHATSAPP',
-            rationale: `Voice call concierge dispatched instant WhatsApp payment link to +${formattedPhone}. MessageSid: ${messageSid}`,
+            rationale: `Voice call concierge dispatched instant WhatsApp payment link to +${formattedPhone}. MessageSid: ${messageSid}. Success: ${waRes.success}${waRes.error ? ` (${waRes.error})` : ''}`,
             policyChecksPassed: { contactCap: true, quietHours: true, discountCap: true },
-            outcome: 'sent',
+            outcome: waRes.success ? 'sent' : 'failed',
           });
         }
 
-        if (customer?.id) {
+        if (customer?.id && waRes.success) {
           await db.insert(contactLog).values({
             customerId: customer.id,
             channel: 'WHATSAPP',
@@ -275,11 +278,14 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
           caseId: caseId || undefined,
           messageSid,
           recipient: `+${formattedPhone}`,
-          message: `Direct WhatsApp payment link dispatched to ${custName} (+${formattedPhone}) during voice call.`,
+          message: waRes.success
+            ? `Direct WhatsApp payment link dispatched to ${custName} (+${formattedPhone}) during voice call.`
+            : `WhatsApp dispatch to +${formattedPhone} failed: ${waRes.error}`,
         });
-      } catch (waErr) {
+      } catch (waErr: any) {
         console.warn('Voice WhatsApp dispatch error:', waErr);
-        whatsappSent = true;
+        whatsappSent = false;
+        whatsappError = waErr?.message || 'Network error';
       }
     }
 
@@ -293,6 +299,7 @@ router.post('/voice/interact', async (req: Request, res: Response, next: NextFun
       promiseRecorded,
       promiseDetails,
       whatsappSent,
+      whatsappError,
       whatsappRecipient: `+${formattedPhone}`,
       recoveryLink,
     });
