@@ -1,47 +1,41 @@
-# Dependencies
+# ── Dependencies ─────────────────────────────────────────────
 node_modules/
 **/node_modules/
 
-# Production builds
+# ── Build outputs ─────────────────────────────────────────────
 dist/
 dist-ssr/
 build/
 **/dist/
 **/build/
 
-# Environment and secrets
+# ── Environment & secrets (NEVER commit these) ────────────────
 .env
 .env.*
 !.env.example
 *.local
 
-# Logs
+# ── Logs ──────────────────────────────────────────────────────
 logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
-# Requirements folder
+# ── Internal project folders (not for GitHub) ─────────────────
 requirements/
 requirments/
 **/requirements/
 **/requirments/
 
 current_ui_screenshots/
-current_ui_screenshots/
-**/current_ui_screenshots/
 **/current_ui_screenshots/
 
-# Markdown documentation files (except README and guides)
-*.md
-**/*.md
-!README.md
-!**/README.md
-!api_keys_setup_guide.md
-!hosting_guide.md
+# ── Presentation (local demo only, not needed on GitHub) ──────
+presentation/
+presentation.html
 
-# Editor and IDE configurations
+# ── Editor & IDE ──────────────────────────────────────────────
 .vscode/*
 !.vscode/extensions.json
 .idea/
@@ -51,10 +45,8 @@ current_ui_screenshots/
 *.sln
 *.sw?
 
-# OS generated files
+# ── OS generated files ────────────────────────────────────────
 .DS_Store
 Thumbs.db
-api_keys_setup_guide.md
+
 hosting_guide.md
-presentation/
-presentation.html
